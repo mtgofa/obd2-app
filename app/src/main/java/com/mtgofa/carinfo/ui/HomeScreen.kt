@@ -182,7 +182,6 @@ fun BrandBadge(make: String?) {
     ) {
         Text(
             initials, color = AppColors.cyan, fontFamily = Sora, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-            style = TextStyle(shadow = Shadow(AppColors.cyan, blurRadius = 12f)),
         )
     }
 }

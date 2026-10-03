@@ -1,6 +1,7 @@
 package com.mtgofa.carinfo
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import com.mtgofa.carinfo.ui.ConnectionBar
@@ -53,6 +55,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AppTheme {
+                // Keep the display awake for as long as the app is in the foreground.
+                val keepOn = Settings.keepScreenOn
+                DisposableEffect(keepOn) {
+                    if (keepOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    onDispose { }
+                }
                 val stack = remember { mutableStateListOf(Route.Home) }
                 val go: (Route) -> Unit = { stack.add(it) }
                 val back: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) else finish() }

@@ -145,7 +145,7 @@ object Obd {
                 }
                 e.setupAdapter()
                 elm = e
-                _link.value = Link(LinkState.Initializing, "Talking to the car…", transport.label, CarState.Waiting)
+                _link.value = Link(LinkState.Initializing, "Talking to the car…", transport.label)
                 // Keep the adapter link and retry until the ignition is switched on.
                 while (!e.probeCar()) {
                     _link.value = Link(

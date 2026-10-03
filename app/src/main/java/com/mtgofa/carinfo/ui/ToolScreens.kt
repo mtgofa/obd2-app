@@ -86,7 +86,6 @@ fun MonitorScreen(onBack: () -> Unit, connect: () -> Unit) {
         listOf(Virtual.BATTERY) + Pids.all.filter { supported.isEmpty() || it.id in supported }.map { it.id }
     }
     Subscribe("monitor", fast = emptyList(), slow = pids)
-    KeepScreenOn()
     ScreenScaffold("Live monitoring", onBack) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
             item { NotConnectedHint(connect) }
@@ -273,7 +272,6 @@ private fun DtcSection(title: String, codes: List<String>, color: Color) {
 fun FuelScreen(onBack: () -> Unit, connect: () -> Unit) {
     val values by Obd.values.collectAsState()
     Subscribe("fuel", fast = listOf(0x0D, 0x10, 0x5E, 0x0C, 0x0B), slow = listOf(0x0F, 0x2F, 0x06, 0x07))
-    KeepScreenOn()
     ScreenScaffold("Fuel economy", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
             NotConnectedHint(connect)
@@ -327,7 +325,6 @@ fun PerformanceScreen(onBack: () -> Unit, connect: () -> Unit) {
     var best by remember { mutableStateOf(mapOf<Run, Double>()) }
     var armed by remember { mutableStateOf(false) }
     Subscribe("perf", fast = listOf(0x0D))
-    KeepScreenOn()
 
     LaunchedEffect(run) {
         state = "Ready"; armed = false; startNs = 0L; elapsed = 0.0
@@ -537,7 +534,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Toggle("Miles (mph)", "Show speed and distance in miles", Settings.mph, Settings::updateMph)
             Toggle("Fahrenheit (°F)", "Show temperatures in °F", Settings.fahrenheit, Settings::updateFahrenheit)
             SectionLabel("Behaviour")
-            Toggle("Keep screen on", "While dashboard, HUD or monitoring is open", Settings.keepScreenOn, Settings::updateKeepScreenOn)
+            Toggle("Keep screen on", "The whole time the app is open", Settings.keepScreenOn, Settings::updateKeepScreenOn)
             Toggle("Auto-connect", "Reconnect to the last adapter when the app opens", Settings.autoConnect, Settings::updateAutoConnect)
             SectionLabel("Vehicle")
             OutlinedTextField(

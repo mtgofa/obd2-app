@@ -38,7 +38,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,15 +58,6 @@ fun Subscribe(owner: String, fast: List<Int>, slow: List<Int> = emptyList()) {
     }
 }
 
-@Composable
-fun KeepScreenOn() {
-    val view = LocalView.current
-    DisposableEffect(Settings.keepScreenOn) {
-        view.keepScreenOn = Settings.keepScreenOn
-        onDispose { view.keepScreenOn = false }
-    }
-}
-
 private val extraPids = listOf(Virtual.BATTERY, 0x04, 0x11, 0x2F, 0x0B, 0x10, 0x0E, 0x42, Virtual.FUEL_RATE)
 
 /** Temperature + other tiles that the car actually supports (or a sensible default set while offline). */
@@ -85,7 +75,6 @@ fun DashboardScreen(onBack: () -> Unit) {
     val tiles = visibleTiles()
     val raw = tiles.filter { it != Virtual.FUEL_RATE } + listOf(0x0B, 0x0F)
     Subscribe("dash", fast = listOf(0x0D, 0x0C), slow = raw)
-    KeepScreenOn()
 
     ScreenScaffold("Dashboard", onBack) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -178,7 +167,6 @@ fun TemperaturesScreen(onBack: () -> Unit) {
     val temps = if (link.state == LinkState.Connected)
         Pids.temperatures.filter { supported.isEmpty() || it in supported } else listOf(0x05, 0x5C, 0x0F, 0x46)
     Subscribe("temps", fast = emptyList(), slow = temps)
-    KeepScreenOn()
     ScreenScaffold("Temperatures", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
             if (link.state == LinkState.Connected && temps.isEmpty()) {
@@ -199,7 +187,6 @@ fun HudScreen(onBack: () -> Unit) {
     val values by Obd.values.collectAsState()
     var mirrored by rememberSaveable { mutableStateOf(true) }
     Subscribe("hud", fast = listOf(0x0D, 0x0C), slow = listOf(0x05))
-    KeepScreenOn()
     val activity = LocalContext.current as? Activity
     DisposableEffect(Unit) {
         val old = activity?.requestedOrientation
