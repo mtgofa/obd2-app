@@ -19,7 +19,12 @@ class Elm327(val transport: Transport) {
         private set
     val isCan: Boolean get() = protocolNumber.lastOrNull()?.let { it in '6'..'9' || it in 'A'..'C' } == true
 
-    /** Append the "expected responses" digit to mode 01 requests so CAN adapters return immediately. */
+    /**
+     * Append the "expected responses" digit to mode 01 requests so CAN adapters return immediately.
+     * Off by default: many ELM327 clones answer every later request with the first cached reply,
+     * which freezes the live values.
+     */
+    var allowFast = false
     private var fastResponses = false
 
     /** Count of consecutive commands that timed out with no '>' prompt — a sign the link is dead. */
@@ -89,8 +94,24 @@ class Elm327(val transport: Transport) {
         }
         protocolNumber = send("ATDPN").trim().let { if (it.length == 2 && it[0] == 'A') it.substring(1) else it }
         protocolName = send("ATDP").removePrefix("AUTO, ").trim()
-        fastResponses = isCan && versionAtLeast(1.3)
+        fastResponses = allowFast && isCan && versionAtLeast(1.3)
+        useEcmDirectly()
         return true
+    }
+
+    /** True while requests go straight to the engine ECU instead of being broadcast. */
+    var physical = false
+        private set
+
+    /**
+     * On CAN, a broadcast (7DF) is answered by every ECU at once; cheap clones then drop or mix up
+     * frames (NO DATA, stale buffer, truncated multi-frame). Talking only to the engine ECU avoids
+     * that, so switch to it when it answers on its own.
+     */
+    private suspend fun useEcmDirectly() {
+        val (ecm, functional) = ecmHeaders() ?: return
+        send("ATSH$ecm")
+        if (readPidRetry(0x00) != null) physical = true else send("ATSH$functional")
     }
 
     private fun versionAtLeast(v: Double): Boolean =
@@ -126,12 +147,18 @@ class Elm327(val transport: Transport) {
         return hexBytes(msg.substring(prefix.length))
     }
 
+    /** Clone adapters drop the odd reply ("NO DATA" on a PID that works), so retry one-off reads. */
+    suspend fun readPidRetry(pid: Int, tries: Int = 3): IntArray? {
+        repeat(tries) { readPid(pid)?.let { return it } }
+        return null
+    }
+
     /** Query the support bitmaps (0100, 0120, ...) and return every supported mode 01 PID. */
     suspend fun supportedPids(): Set<Int> {
         val out = mutableSetOf<Int>()
         var base = 0x00
         while (base <= 0xE0) {
-            val data = readPid(base) ?: break
+            val data = readPidRetry(base) ?: break
             if (data.size < 4) break
             for (i in 0 until 32) {
                 val byte = data[i / 8]
@@ -143,16 +170,62 @@ class Elm327(val transport: Transport) {
         return out
     }
 
-    /** Read DTCs for mode 03 (stored), 07 (pending) or 0A (permanent). */
+    /** Engine ECU's physical request header and the broadcast header to restore, for CAN only. */
+    private fun ecmHeaders(): Pair<String, String>? = when (protocolNumber) {
+        "6", "8" -> "7E0" to "7DF"
+        "7", "9" -> "DA10F1" to "DB33F1"
+        else -> null
+    }
+
+    /**
+     * Send [cmd] to the engine ECU alone. Clone adapters lose ISO-TP frames when a second ECU
+     * answers a broadcast at the same moment, so multi-frame replies are reliable only this way.
+     */
+    private suspend fun sendToEcm(cmd: String, timeoutMs: Long = 6000): String? {
+        if (physical) return send(cmd, timeoutMs)
+        val (ecm, functional) = ecmHeaders() ?: return null
+        return try {
+            send("ATSH$ecm")
+            send(cmd, timeoutMs)
+        } finally {
+            send("ATSH$functional")
+        }
+    }
+
+    /** Send [cmd] as a broadcast to every ECU, then go back to the engine ECU if we were on it. */
+    private suspend fun broadcast(cmd: String, timeoutMs: Long = 6000): String {
+        if (!physical) return send(cmd, timeoutMs)
+        val (ecm, functional) = ecmHeaders() ?: return send(cmd, timeoutMs)
+        return try {
+            send("ATSH$functional")
+            send(cmd, timeoutMs)
+        } finally {
+            send("ATSH$ecm")
+        }
+    }
+
+    /**
+     * Read DTCs for mode 03 (stored), 07 (pending) or 0A (permanent): the engine ECU directly
+     * (complete and reliable), plus a broadcast for codes held by other ECUs.
+     */
     suspend fun readDtcs(mode: String): List<String> {
-        val reply = send(mode, 6000)
+        val engine = sendToEcm(mode)?.let { parseDtcs(it, mode).first } ?: emptyList()
+        val others = parseDtcs(broadcast(mode), mode).first
+        return (engine + others).distinct()
+    }
+
+    /** Returns the codes and whether a CAN reply announced more codes than actually arrived. */
+    private fun parseDtcs(reply: String, mode: String): Pair<List<String>, Boolean> {
         val prefix = "%02X".format(mode.toInt(16) + 0x40)
         val codes = linkedSetOf<String>()
+        var truncated = false
         for (m in messages(reply)) {
+            // Prefix check also drops stale replies some clones return from their buffer.
             if (!m.startsWith(prefix)) continue
             var bytes = hexBytes(m.substring(2))
             if (isCan && bytes.isNotEmpty()) {
                 val count = bytes[0]
+                if (bytes.size < 1 + count * 2) truncated = true
                 bytes = bytes.copyOfRange(1, minOf(bytes.size, 1 + count * 2))
             }
             var i = 0
@@ -165,16 +238,17 @@ class Elm327(val transport: Transport) {
                 codes += "%c%d%X%02X".format(letter, (b1 shr 4) and 3, b1 and 0x0F, b2)
             }
         }
-        return codes.toList()
+        return codes.toList() to truncated
     }
 
-    suspend fun clearDtcs(): Boolean = send("04", 6000).let { it.contains("44") }
+    /** Mode 04 must reach every ECU, so it is always broadcast. */
+    suspend fun clearDtcs(): Boolean = broadcast("04").contains("44")
 
     /** Mode 09 text value (VIN = 02, calibration ID = 04, ECU name = 0A). */
     suspend fun readInfoText(pid: String): String? {
-        val reply = send("09$pid", 6000)
+        val reply = (if (isCan) sendToEcm("09$pid") else null) ?: send("09$pid", 6000)
         if (reply.contains("NO DATA") || reply.contains("?")) return null
-        val bytes = messages(reply).filter { it.startsWith("49") }.flatMap { m ->
+        val bytes = messages(reply).filter { it.startsWith("49$pid") }.flatMap { m ->
             // Skip "49 xx" and the record counter; keep printable characters only.
             hexBytes(m).drop(3)
         }
@@ -182,12 +256,24 @@ class Elm327(val transport: Transport) {
         return text.trim().ifEmpty { null }
     }
 
+    /**
+     * VIN via the standard broadcast (09 02). Many cars only answer when the engine ECU is
+     * addressed directly, or only through UDS ReadDataByIdentifier F190, so try those next.
+     */
     suspend fun readVin(): String? {
-        val reply = send("0902", 6000)
-        if (reply.contains("NO DATA")) return null
+        if (!physical) parseVin(send("0902", 6000), "4902")?.let { return it }
+        if (!isCan) return null
+        val reply = sendToEcm("0902") ?: return null
+        return parseVin(reply, "4902") ?: sendToEcm("22F190")?.let { parseVin(it, "62F190") }
+    }
+
+    /** Pull 17 VIN characters out of the positive response that starts with [marker]. */
+    private fun parseVin(reply: String, marker: String): String? {
+        if (reply.contains("NO DATA") || reply.contains("?")) return null
         // VINs never contain I, O or Q, so 0x49 ('I') headers and counters drop out naturally.
-        val chars = messages(reply).joinToString("") { m ->
-            hexBytes(m).map { it.toChar() }.filter { it in 'A'..'Z' || it in '0'..'9' }
+        val chars = messages(reply).filter { it.contains(marker) }.joinToString("") { m ->
+            hexBytes(m.substring(m.indexOf(marker) + marker.length).let { if (it.length % 2 == 1) it.dropLast(1) else it })
+                .map { it.toChar() }.filter { it in 'A'..'Z' || it in '0'..'9' }
                 .filter { it != 'I' && it != 'O' && it != 'Q' }.joinToString("")
         }
         return if (chars.length >= 17) chars.takeLast(17) else null

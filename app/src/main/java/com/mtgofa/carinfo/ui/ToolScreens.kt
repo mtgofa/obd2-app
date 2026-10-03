@@ -72,7 +72,7 @@ fun NotConnectedHint(go: () -> Unit) {
     if (link.state == LinkState.Connected) return
     AppCard(Modifier.fillMaxWidth().padding(bottom = 12.dp), onClick = go, accent = AppColors.amber) {
         Text("Not connected", color = AppColors.amber, fontFamily = Sora, fontWeight = FontWeight.SemiBold)
-        Text("Tap to connect to your OBD2 adapter (or try the demo car).", color = AppColors.dim, fontSize = 13.sp)
+        Text("Tap to connect to your OBD2 adapter.", color = AppColors.dim, fontSize = 13.sp)
     }
 }
 
@@ -536,6 +536,10 @@ fun SettingsScreen(onBack: () -> Unit) {
             SectionLabel("Behaviour")
             Toggle("Keep screen on", "The whole time the app is open", Settings.keepScreenOn, Settings::updateKeepScreenOn)
             Toggle("Auto-connect", "Reconnect to the last adapter when the app opens", Settings.autoConnect, Settings::updateAutoConnect)
+            Toggle(
+                "Fast polling (CAN)", "Faster refresh on genuine ELM327s. Turn off if values freeze. Applies on next connect.",
+                Settings.fastPolling, Settings::updateFastPolling,
+            )
             SectionLabel("Vehicle")
             OutlinedTextField(
                 carName, { carName = it; Settings.updateCarName(it) }, Modifier.fillMaxWidth(),

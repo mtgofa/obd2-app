@@ -23,8 +23,8 @@ android {
         applicationId = "com.mtgofa.carinfo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
         vectorDrawables { useSupportLibrary = true }
         // In-app updates read GitHub Releases "latest"; the release name must carry " (code N)".
         buildConfigField("String", "GITHUB_OWNER", "\"${project.findProperty("ghOwner") ?: ""}\"")

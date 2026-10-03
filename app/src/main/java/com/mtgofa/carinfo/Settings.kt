@@ -21,6 +21,7 @@ object Settings {
     var wifiHost by mutableStateOf("192.168.0.10"); private set
     var wifiPort by mutableStateOf(35000); private set
     var lastTarget by mutableStateOf(""); private set
+    var fastPolling by mutableStateOf(false); private set
 
     fun init(context: Context) {
         sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -33,6 +34,7 @@ object Settings {
         wifiHost = sp.getString("wifiHost", "192.168.0.10") ?: "192.168.0.10"
         wifiPort = sp.getInt("wifiPort", 35000)
         lastTarget = sp.getString("lastTarget", "") ?: ""
+        fastPolling = sp.getBoolean("fastPolling", false)
     }
 
     fun updateMph(v: Boolean) { mph = v; sp.edit().putBoolean("mph", v).apply() }
@@ -45,6 +47,7 @@ object Settings {
         wifiHost = host; wifiPort = port
         sp.edit().putString("wifiHost", host).putInt("wifiPort", port).apply()
     }
+    fun updateFastPolling(v: Boolean) { fastPolling = v; sp.edit().putBoolean("fastPolling", v).apply() }
     fun updateLastTarget(v: String) { lastTarget = v; sp.edit().putString("lastTarget", v).apply() }
 }
 

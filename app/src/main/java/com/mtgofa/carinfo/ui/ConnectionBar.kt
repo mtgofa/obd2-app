@@ -49,7 +49,7 @@ fun ConnectionBar(onClick: () -> Unit) {
     val adapter: Triple<String, Color, Boolean> = when (link.state) {
         LinkState.Disconnected -> Triple("Not connected", p.dim, false)
         LinkState.Connecting -> Triple("Connecting…", p.amber, true)
-        LinkState.Initializing, LinkState.Connected -> Triple(link.via.substringBefore(" · ").ifBlank { "Connected" }, p.green, false)
+        LinkState.Initializing, LinkState.Connected -> Triple(link.via.substringAfter(" · ").ifBlank { "Connected" }, p.green, false)
         LinkState.Error -> Triple("Failed — tap", p.red, false)
     }
     val car: Triple<String, Color, Boolean> = when {

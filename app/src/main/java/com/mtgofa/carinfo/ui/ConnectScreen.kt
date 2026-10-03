@@ -273,9 +273,6 @@ fun ConnectScreen(onBack: () -> Unit) {
                 Settings.updateWifi(host.trim(), p)
                 Obd.connect(Target.Wifi(host.trim(), p))
             }, Modifier.fillMaxWidth(), color = AppColors.blue)
-
-            SectionLabel("No adapter?")
-            AppButton("Try the demo car", { Obd.connect(Target.Demo) }, Modifier.fillMaxWidth(), color = AppColors.magenta)
             Spacer(Modifier.height(24.dp))
         }
     }

@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.util.Log
 import com.mtgofa.carinfo.Settings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,22 +50,24 @@ data class Vehicle(
 ) {
     val title: String
         get() = Settings.carName.ifBlank {
-            listOfNotNull(make, year?.toString()).joinToString(" ").ifBlank { "Unknown vehicle" }
+            when {
+                make != null -> listOfNotNull(make, year?.toString()).joinToString(" ")
+                year != null -> "Car · $year"
+                else -> "Unknown vehicle"
+            }
         }
 }
 
 data class Sample(val pid: Int, val value: Double, val timeNanos: Long)
 
-/** Where to connect: a Bluetooth device, a Wi-Fi adapter or the built-in demo car. */
+/** Where to connect: a Bluetooth device or a Wi-Fi adapter. */
 sealed class Target {
     data class Bt(val address: String, val name: String) : Target()
     data class Wifi(val host: String, val port: Int) : Target()
-    data object Demo : Target()
 
     fun encode(): String = when (this) {
         is Bt -> "bt|$address|$name"
         is Wifi -> "wifi|$host|$port"
-        Demo -> "demo"
     }
 
     companion object {
@@ -72,7 +76,6 @@ sealed class Target {
             return when (p.firstOrNull()) {
                 "bt" -> if (p.size >= 3) Bt(p[1], p[2]) else null
                 "wifi" -> if (p.size >= 3) Wifi(p[1], p[2].toIntOrNull() ?: 35000) else null
-                "demo" -> Demo
                 else -> null
             }
         }
@@ -104,7 +107,10 @@ object Obd {
     private val subscriptions = mutableMapOf<String, Pair<List<Int>, List<Int>>>()
     private val dead = mutableSetOf<Int>()
     private val misses = mutableMapOf<Int, Int>()
-    private var failStreak = 0
+    /** Last successful read per PID; PIDs that answered once are never dropped from polling. */
+    private val lastOk = mutableMapOf<Int, Long>()
+    private var lastCarAnswer = 0L
+    private const val STALE_MS = 5000L
 
     private var tripKm = 0.0
     private var tripFuel = 0.0
@@ -129,7 +135,12 @@ object Obd {
     fun isSupported(pid: Int): Boolean =
         pid >= 0x1000 || _supported.value.isEmpty() || pid in _supported.value
 
-    fun connect(target: Target) {
+    /** The adapter the user asked for; cleared by [disconnect]. Used to reconnect after a drop. */
+    private var wanted: Target? = null
+
+    /** [retry] marks an automatic reconnect after a dropped link: on failure it tries again. */
+    fun connect(target: Target, retry: Boolean = false) {
+        wanted = target
         val previous = connectJob
         connectJob = scope.launch {
             previous?.cancelAndJoin()
@@ -140,7 +151,9 @@ object Obd {
                 transport = openTransport(target)
                 _link.value = Link(LinkState.Initializing, "Setting up the adapter…", transport.label)
                 val e = Elm327(transport)
+                e.allowFast = Settings.fastPolling
                 e.onTraffic = { cmd, reply ->
+                    Log.d("CarInfo", "> $cmd | ${reply.replace("\n", " / ")}")
                     _traffic.update { (it + "> $cmd" + reply.lines().map { l -> "  $l" }).takeLast(400) }
                 }
                 e.setupAdapter()
@@ -158,18 +171,28 @@ object Obd {
                 _vehicle.value = detectVehicle(e)
                 Settings.updateLastTarget(target.encode())
                 resetTrip()
-                failStreak = 0
+                lastCarAnswer = System.currentTimeMillis()
                 _link.value = Link(LinkState.Connected, "Connected", transport.label, CarState.Online, e.protocolName)
                 startPolling(e)
+            } catch (ex: CancellationException) {
+                transport?.close()
+                throw ex
             } catch (ex: Exception) {
                 transport?.close()
                 elm = null
-                _link.value = Link(LinkState.Error, ex.message ?: "Connection failed")
+                if (retry && wanted == target) {
+                    _link.value = Link(LinkState.Connecting, "Reconnecting…")
+                    delay(4000)
+                    if (wanted == target) scope.launch { connect(target, retry = true) }
+                } else {
+                    _link.value = Link(LinkState.Error, ex.message ?: "Connection failed")
+                }
             }
         }
     }
 
     fun disconnect() {
+        wanted = null
         scope.launch {
             connectJob?.cancelAndJoin()
             teardown()
@@ -184,12 +207,12 @@ object Obd {
         elm = null
         dead.clear()
         misses.clear()
+        lastOk.clear()
         _values.value = emptyMap()
     }
 
     @SuppressLint("MissingPermission")
     private suspend fun openTransport(target: Target): Transport = when (target) {
-        Target.Demo -> DemoTransport().also { it.open() }
         is Target.Wifi -> WifiTransport(app, target.host, target.port).also { it.open() }
         is Target.Bt -> {
             val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter
@@ -215,8 +238,8 @@ object Obd {
     private suspend fun detectVehicle(e: Elm327): Vehicle {
         val vin = runCatching { e.readVin() }.getOrNull()
         val decoded = vin?.let { Vin.decode(it) }
-        val standard = runCatching { e.readPid(0x1C)?.firstOrNull() }.getOrNull()
-        val fuel = if (isSupported(0x51)) runCatching { e.readPid(0x51)?.firstOrNull() }.getOrNull() else null
+        val standard = if (isSupported(0x1C)) runCatching { e.readPidRetry(0x1C)?.firstOrNull() }.getOrNull() else null
+        val fuel = if (isSupported(0x51)) runCatching { e.readPidRetry(0x51)?.firstOrNull() }.getOrNull() else null
         return Vehicle(
             vin = vin,
             make = decoded?.make,
@@ -244,7 +267,9 @@ object Obd {
                 if (!e.transport.alive || e.silentCount >= 4) {
                     e.transport.close()
                     elm = null
-                    _link.value = Link(LinkState.Error, "Connection to the adapter was lost")
+                    _link.value = Link(LinkState.Connecting, "Connection lost — reconnecting…")
+                    // Bluetooth links to clone adapters drop now and then; bring it back by itself.
+                    wanted?.let { t -> scope.launch { delay(1500); if (wanted == t) connect(t, retry = true) } }
                     break
                 }
                 val (fast, slow) = synchronized(this@Obd) {
@@ -275,14 +300,20 @@ object Obd {
                 pid >= 0x1000 -> return
                 else -> e.readPid(pid)?.let { Pids[pid]?.decode?.invoke(it) }
             }
+            val now = System.currentTimeMillis()
             if (v == null) {
                 if (pid != Virtual.BATTERY) markCar(false)
                 val m = (misses[pid] ?: 0) + 1
                 misses[pid] = m
-                if (m >= 3 && _supported.value.isNotEmpty()) dead += pid
+                // Single dropped replies are normal on clone adapters: keep the last value, and only
+                // blank it once it has been stale for a while so a frozen number never looks live.
+                val last = lastOk[pid]
+                if (last != null && now - last > STALE_MS) _values.update { it - pid }
+                if (last == null && m >= 3 && _supported.value.isNotEmpty()) dead += pid
                 return
             }
             misses[pid] = 0
+            lastOk[pid] = now
             if (pid != Virtual.BATTERY) markCar(true)
             _values.update { it + (pid to v) }
             _samples.tryEmit(Sample(pid, v, System.nanoTime()))
@@ -291,13 +322,14 @@ object Obd {
         }
     }
 
-    /** Many PIDs in a row with no answer means the ECU went quiet (ignition off) while the adapter is fine. */
+    /** No answer from the ECU for a while means it went quiet (ignition off) while the adapter is fine. */
     private fun markCar(answered: Boolean) {
         val l = _link.value
+        val now = System.currentTimeMillis()
         if (answered) {
-            failStreak = 0
+            lastCarAnswer = now
             if (l.car == CarState.Lost) _link.value = l.copy(car = CarState.Online, message = "Connected")
-        } else if (++failStreak >= 8 && l.car == CarState.Online) {
+        } else if (now - lastCarAnswer > STALE_MS && l.car == CarState.Online) {
             _link.value = l.copy(car = CarState.Lost, message = "Car stopped responding")
         }
     }
