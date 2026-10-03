@@ -39,6 +39,7 @@ data class Link(
 data class Vehicle(
     val vin: String? = null,
     val make: String? = null,
+    val model: String? = null,
     val year: Int? = null,
     val country: String? = null,
     val protocol: String = "",
@@ -51,7 +52,7 @@ data class Vehicle(
     val title: String
         get() = Settings.carName.ifBlank {
             when {
-                make != null -> listOfNotNull(make, year?.toString()).joinToString(" ")
+                make != null -> listOfNotNull(make, model, year?.toString()).joinToString(" ")
                 year != null -> "Car · $year"
                 else -> "Unknown vehicle"
             }
@@ -243,6 +244,7 @@ object Obd {
         return Vehicle(
             vin = vin,
             make = decoded?.make,
+            model = decoded?.model,
             year = decoded?.year,
             country = decoded?.country,
             protocol = e.protocolName,

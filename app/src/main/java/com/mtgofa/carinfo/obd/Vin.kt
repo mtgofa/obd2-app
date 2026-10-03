@@ -2,7 +2,7 @@ package com.mtgofa.carinfo.obd
 
 import java.util.Calendar
 
-data class VinInfo(val make: String?, val country: String?, val year: Int?)
+data class VinInfo(val make: String?, val country: String?, val year: Int?, val model: String? = null)
 
 /** Decodes make, country and model year from a 17-char VIN using the WMI and 10th character. */
 object Vin {
@@ -55,6 +55,15 @@ object Vin {
         "PMH" to "Perodua",
     )
 
+    /**
+     * Exact vehicles confirmed by owners, keyed by WMI + model code (first 7 VIN characters).
+     * Used for locally assembled cars whose WMI belongs to the assembler, not the brand, so the
+     * 3-letter prefix alone can't name the make. Country is left out when the WMI can't prove it.
+     */
+    private val models = mapOf(
+        "AEGCC21" to Triple("Chery", "Arrizo 5", null as String?),
+    )
+
     private val wmi2 = mapOf(
         "JT" to "Toyota", "JN" to "Nissan", "JH" to "Honda", "JM" to "Mazda", "JS" to "Suzuki",
         "JA" to "Mitsubishi", "JF" to "Subaru", "KM" to "Hyundai", "KN" to "Kia", "KL" to "Chevrolet (GM Korea)",
@@ -93,13 +102,15 @@ object Vin {
 
     fun decode(vin: String): VinInfo {
         if (vin.length != 17) return VinInfo(null, null, null)
-        val make = wmi3[vin.substring(0, 3)] ?: wmi2[vin.substring(0, 2)]
+        val exact = models[vin.substring(0, 7)]
+        val make = exact?.first ?: wmi3[vin.substring(0, 3)] ?: wmi2[vin.substring(0, 2)]
         val idx = YEAR_CODES.indexOf(vin[9])
         val year = if (idx < 0) null else {
             val latest = Calendar.getInstance().get(Calendar.YEAR) + 1
             // The code cycles every 30 years (1980+, 2010+, 2040+); take the most recent one not in the future.
             generateSequence(1980 + idx) { it + 30 }.takeWhile { it <= latest }.lastOrNull()
         }
-        return VinInfo(make, country(vin[0], vin[1]), year)
+        val country = if (exact != null) exact.third else country(vin[0], vin[1])
+        return VinInfo(make, country, year, exact?.second)
     }
 }

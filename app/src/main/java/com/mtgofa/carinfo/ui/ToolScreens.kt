@@ -430,6 +430,7 @@ fun InfoScreen(onBack: () -> Unit, connect: () -> Unit) {
             SectionLabel("Identification")
             InfoRow("VIN", v?.vin)
             InfoRow("Manufacturer", v?.make)
+            InfoRow("Model", v?.model)
             InfoRow("Model year", v?.year?.toString())
             InfoRow("Built in", v?.country)
             InfoRow("Fuel type", v?.fuelType)
