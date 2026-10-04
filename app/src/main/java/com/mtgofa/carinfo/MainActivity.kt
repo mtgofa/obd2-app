@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
         )
         if (savedInstanceState == null) {
-            autoConnect()
+            Obd.autoConnect(this)
             Updater.check(auto = true)
         }
 
@@ -101,13 +101,5 @@ class MainActivity : ComponentActivity() {
                         Route.Terminal -> TerminalScreen(back)
                         Route.Settings -> SettingsScreen(back)
                     }
-    }
-
-    /** Reconnect to the last adapter on launch so the dashboard is live without any taps. */
-    private fun autoConnect() {
-        if (!Settings.autoConnect || Obd.link.value.state != LinkState.Disconnected) return
-        val target = Target.decode(Settings.lastTarget) ?: return
-        if (target is Target.Bt && !hasBtPermissions(this)) return
-        Obd.connect(target)
     }
 }

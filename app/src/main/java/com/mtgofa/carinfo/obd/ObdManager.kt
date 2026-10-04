@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.util.Log
 import com.mtgofa.carinfo.Settings
+import com.mtgofa.carinfo.ui.hasBtPermissions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +122,14 @@ object Obd {
 
     fun init(context: Context) {
         app = context.applicationContext
+    }
+
+    /** Reconnect to the last adapter, from the phone UI or the car screen, whichever starts first. */
+    fun autoConnect(context: Context) {
+        if (!Settings.autoConnect || _link.value.state != LinkState.Disconnected) return
+        val target = Target.decode(Settings.lastTarget) ?: return
+        if (target is Target.Bt && !hasBtPermissions(context)) return
+        connect(target)
     }
 
     @Synchronized
