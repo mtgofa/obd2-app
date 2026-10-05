@@ -2,23 +2,29 @@ package com.mtgofa.carinfo.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -98,19 +104,91 @@ fun UpdatePrompt() {
     val rel = Updater.release ?: return
     val ctx = LocalContext.current
     AlertDialog(
-        onDismissRequest = { Updater.later() },
-        title = { Text("New version available") },
+        onDismissRequest = { if (!Updater.downloading) Updater.later() },
+        title = {
+            Text(
+                text = "New Update Available",
+                fontFamily = Sora,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = AppColors.text,
+            )
+        },
         text = {
-            Column {
-                Text("Car Info ${rel.tagName} is ready to install. You have ${BuildConfig.VERSION_NAME}.")
-                if (Updater.message.isNotBlank()) Text(Updater.message, color = AppColors.dim, modifier = Modifier.padding(top = 8.dp))
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AppColors.inset)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "New: ${rel.tagName}",
+                        fontFamily = Sora,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = AppColors.cyan
+                    )
+                    Text("Current: v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = AppColors.dim)
+                }
+
+                if (rel.notes.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("What's new:", fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = AppColors.dim)
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 150.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(AppColors.card)
+                            .verticalScroll(rememberScrollState())
+                            .padding(10.dp)
+                    ) {
+                        Text(rel.notes, fontSize = 12.sp, color = AppColors.text, lineHeight = 16.sp)
+                    }
+                }
+
+                if (Updater.downloading) {
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                        color = AppColors.cyan,
+                        trackColor = AppColors.inset
+                    )
+                }
+
+                if (Updater.message.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        Updater.message,
+                        color = if (Updater.message.contains("failed", ignoreCase = true) || Updater.message.contains("mismatch", ignoreCase = true)) AppColors.red else AppColors.dim,
+                        fontSize = 12.sp
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { Updater.install(ctx) }, enabled = !Updater.downloading) {
-                Text(if (Updater.downloading) "Downloading…" else "Update now")
+            TextButton(
+                onClick = { Updater.install(ctx) },
+                enabled = !Updater.downloading
+            ) {
+                Text(
+                    if (Updater.downloading) "Downloading…" else "Update now",
+                    color = if (Updater.downloading) AppColors.dim else AppColors.cyan,
+                    fontWeight = FontWeight.Bold
+                )
             }
         },
-        dismissButton = { TextButton(onClick = { Updater.later() }) { Text("Later") } },
+        dismissButton = {
+            if (!Updater.downloading) {
+                TextButton(onClick = { Updater.later() }) {
+                    Text("Later", color = AppColors.dim)
+                }
+            }
+        },
     )
 }

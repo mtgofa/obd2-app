@@ -19,16 +19,22 @@ import java.net.URL
 import java.security.MessageDigest
 
 /** A new version announced on GitHub Releases. */
-data class AppRelease(val versionCode: Int, val tagName: String, val downloadUrl: String, val sha256: String?)
+data class AppRelease(
+    val versionCode: Int,
+    val tagName: String,
+    val downloadUrl: String,
+    val sha256: String?,
+    val notes: String = ""
+)
 
 /**
  * Auto-update via GitHub Releases "latest" (public repo, no token needed).
  *
- * The release must follow this contract:
- *   name      -> "Car Info 1.1.0 (code 2)"
- *   tag_name  -> "v1.1.0"
- *   assets    -> contains one *.apk
- *   body      -> optional line "sha256: <64-hex>" (verified when present)
+ * Supported release formats:
+ *   name      -> "Car Info 1.1.1 (code 4)" or "v1.1.1" or "1.1.1"
+ *   tag_name  -> "v1.1.1"
+ *   assets    -> contains an APK file (*.apk)
+ *   body      -> optional changelog notes, optional line "sha256: <64-hex>"
  */
 object Updater {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -74,24 +80,55 @@ object Updater {
             setRequestProperty("User-Agent", "CarInfo-Android")
         }
 
+    private fun isNewerVersion(remoteTag: String, localVersion: String): Boolean {
+        val r = remoteTag.trimStart('v', 'V').split(".").mapNotNull { it.takeWhile { c -> c.isDigit() }.toIntOrNull() }
+        val l = localVersion.trimStart('v', 'V').split(".").mapNotNull { it.takeWhile { c -> c.isDigit() }.toIntOrNull() }
+        for (i in 0 until maxOf(r.size, l.size)) {
+            val rv = r.getOrElse(i) { 0 }
+            val lv = l.getOrElse(i) { 0 }
+            if (rv > lv) return true
+            if (rv < lv) return false
+        }
+        return false
+    }
+
     private fun fetch(): AppRelease? {
         val c = get("https://api.github.com/repos/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/releases/latest")
         try {
             if (c.responseCode == 404) throw IllegalStateException("no releases yet")
             if (c.responseCode !in 200..299) throw IllegalStateException("HTTP ${c.responseCode}")
             val o = JSONObject(c.inputStream.bufferedReader().readText())
-            val code = Regex("""code\s*(\d+)""", RegexOption.IGNORE_CASE).find(o.optString("name"))
-                ?.groupValues?.get(1)?.toIntOrNull() ?: throw IllegalStateException("no \"code N\" in release name")
-            if (code <= BuildConfig.VERSION_CODE) return null
+            val name = o.optString("name")
+            val tagName = o.optString("tag_name")
+            val body = o.optString("body")
+
+            val codeInName = Regex("""code\s*(\d+)""", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.toIntOrNull()
+            val codeInBody = Regex("""code\s*(\d+)""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)?.toIntOrNull()
+            val code = codeInName ?: codeInBody
+
+            val isUpdateAvailable = if (code != null) {
+                code > BuildConfig.VERSION_CODE
+            } else {
+                isNewerVersion(tagName, BuildConfig.VERSION_NAME)
+            }
+
+            if (!isUpdateAvailable) return null
+
             val assets = o.optJSONArray("assets")
             var url = ""
             if (assets != null) for (i in 0 until assets.length()) {
                 val u = assets.getJSONObject(i).optString("browser_download_url")
-                if (u.endsWith(".apk")) { url = u; break }
+                if (u.contains(".apk", ignoreCase = true)) { url = u; break }
             }
-            if (url.isBlank()) throw IllegalStateException("no apk in release")
-            val sha = Regex("""sha256[:=]\s*([0-9a-fA-F]{64})""").find(o.optString("body"))?.groupValues?.get(1)?.lowercase()
-            return AppRelease(code, o.optString("tag_name"), url, sha)
+            if (url.isBlank()) throw IllegalStateException("no apk found in release assets")
+
+            val sha = Regex("""sha256[:=]\s*([0-9a-fA-F]{64})""").find(body)?.groupValues?.get(1)?.lowercase()
+            val cleanNotes = body.lines()
+                .filterNot { it.trim().startsWith("sha256", ignoreCase = true) }
+                .joinToString("\n")
+                .trim()
+
+            return AppRelease(code ?: (BuildConfig.VERSION_CODE + 1), tagName.ifBlank { name }, url, sha, cleanNotes)
         } finally {
             c.disconnect()
         }
@@ -114,27 +151,65 @@ object Updater {
             message = "Installing…"
             prompt = false
             val uri = FileProvider.getUriForFile(app, app.packageName + ".fileprovider", file)
-            val intent = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { app.startActivity(intent) }.onFailure { message = "Could not open the installer" }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    if (!app.packageManager.canRequestPackageInstalls()) {
+                        val manageIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                            data = android.net.Uri.parse("package:${app.packageName}")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        app.startActivity(manageIntent)
+                        return@runCatching
+                    }
+                }
+                app.startActivity(intent)
+            }.onFailure { message = "Could not open installer: ${it.message}" }
         }
     }
 
     private fun download(rel: AppRelease, dir: File): File? {
         dir.mkdirs()
-        // GitHub redirects asset downloads to its CDN; HttpURLConnection follows same-protocol redirects.
-        val c = get(rel.downloadUrl).apply { setRequestProperty("Accept", "application/octet-stream") }
-        val bytes = try {
-            if (c.responseCode !in 200..299) return null
-            c.inputStream.use { it.readBytes() }
+        var currentUrl = rel.downloadUrl
+        var conn: HttpURLConnection? = null
+        var bytes: ByteArray? = null
+        try {
+            var redirects = 0
+            while (redirects < 6) {
+                conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15_000
+                    readTimeout = 60_000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept", "application/octet-stream")
+                    setRequestProperty("User-Agent", "CarInfo-Android")
+                }
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location") ?: break
+                    conn.disconnect()
+                    currentUrl = if (loc.startsWith("http")) loc else URL(URL(currentUrl), loc).toString()
+                    redirects++
+                } else if (code in 200..299) {
+                    bytes = conn.inputStream.use { it.readBytes() }
+                    break
+                } else {
+                    return null
+                }
+            }
         } finally {
-            c.disconnect()
+            conn?.disconnect()
         }
+
+        if (bytes == null) return null
         rel.sha256?.let { expected ->
             val got = BigInteger(1, MessageDigest.getInstance("SHA-256").digest(bytes)).toString(16).padStart(64, '0')
             if (got != expected) return null
         }
-        return File(dir, "update.apk").also { it.writeBytes(bytes) }
+        val file = File(dir, "update.apk")
+        file.writeBytes(bytes)
+        return file
     }
 }

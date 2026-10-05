@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import com.mtgofa.carinfo.ui.ConnectionBar
@@ -50,7 +51,6 @@ class MainActivity : ComponentActivity() {
         )
         if (savedInstanceState == null) {
             Obd.autoConnect(this)
-            Updater.check(auto = true)
         }
 
         setContent {
@@ -67,6 +67,13 @@ class MainActivity : ComponentActivity() {
                 val back: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) else finish() }
                 val connect = { go(Route.Connect) }
                 BackHandler(stack.size > 1) { back() }
+
+                LaunchedEffect(Unit) {
+                    // Check for updates right after opening, completely async in background,
+                    // ensuring 0ms impact on app cold start and rendering.
+                    kotlinx.coroutines.delay(1200)
+                    Updater.check(auto = true)
+                }
 
                 UpdatePrompt()
                 AnimatedContent(stack.last(), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "nav") { route ->

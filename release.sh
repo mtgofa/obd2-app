@@ -4,7 +4,11 @@
 # Bump versionCode + versionName in app/build.gradle.kts before each release.
 set -euo pipefail
 cd "$(dirname "$0")"
-export JAVA_HOME="${JAVA_HOME:-$HOME/wasla-toolchain/jdk-17.0.20.1+1}"
+if [ -d "$HOME/jdk" ]; then
+    export JAVA_HOME="${JAVA_HOME:-$HOME/jdk}"
+else
+    export JAVA_HOME="${JAVA_HOME:-$HOME/wasla-toolchain/jdk-17.0.20.1+1}"
+fi
 
 [ -f keystore.properties ] || { echo "keystore.properties missing — releases must be signed with the same key"; exit 1; }
 NAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
