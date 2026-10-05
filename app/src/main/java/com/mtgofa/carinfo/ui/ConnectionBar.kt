@@ -177,7 +177,11 @@ fun UpdatePrompt() {
                 enabled = !Updater.downloading
             ) {
                 Text(
-                    if (Updater.downloading) "Downloading…" else "Update now",
+                    when {
+                        Updater.downloading -> "Downloading…"
+                        Updater.downloadedFile != null -> "Install"
+                        else -> "Update now"
+                    },
                     color = if (Updater.downloading) AppColors.dim else AppColors.cyan,
                     fontWeight = FontWeight.Bold
                 )

@@ -2,6 +2,8 @@ package com.mtgofa.carinfo
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -42,9 +44,11 @@ object Updater {
     var checking by mutableStateOf(false); private set
     var downloading by mutableStateOf(false); private set
     var release by mutableStateOf<AppRelease?>(null); private set
+    var downloadedFile by mutableStateOf<File?>(null); private set
     var message by mutableStateOf(""); private set
     /** The "new version" popup — shown as soon as a check finds one, so nobody misses an update. */
     var prompt by mutableStateOf(false); private set
+    var pendingInstallPermission by mutableStateOf(false); private set
 
     private val configured get() = BuildConfig.GITHUB_OWNER.isNotBlank() && BuildConfig.GITHUB_REPO.isNotBlank()
 
@@ -70,6 +74,7 @@ object Updater {
 
     fun later() {
         prompt = false
+        pendingInstallPermission = false
     }
 
     private fun get(url: String): HttpURLConnection =
@@ -138,6 +143,14 @@ object Updater {
     fun install(context: Context) {
         val rel = release ?: return
         if (downloading) return
+
+        val cached = downloadedFile ?: File(context.applicationContext.cacheDir, "updater/update.apk")
+        if (cached.exists() && cached.length() > 0 && isFileValid(cached, rel)) {
+            downloadedFile = cached
+            triggerInstall(context, cached)
+            return
+        }
+
         downloading = true
         message = "Downloading update…"
         val app = context.applicationContext
@@ -148,26 +161,66 @@ object Updater {
                 message = "Download or checksum check failed"
                 return@launch
             }
-            message = "Installing…"
-            prompt = false
-            val uri = FileProvider.getUriForFile(app, app.packageName + ".fileprovider", file)
+            downloadedFile = file
+            triggerInstall(context, file)
+        }
+    }
+
+    private fun isFileValid(file: File, rel: AppRelease): Boolean {
+        if (rel.sha256 == null) return true
+        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return false
+        val got = BigInteger(1, MessageDigest.getInstance("SHA-256").digest(bytes)).toString(16).padStart(64, '0')
+        return got.equals(rel.sha256, ignoreCase = true)
+    }
+
+    fun triggerInstall(context: Context, file: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                pendingInstallPermission = true
+                prompt = true
+                message = "Please allow \"Install unknown apps\", then return here."
+                val manageIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { context.startActivity(manageIntent) }
+                return
+            }
+        }
+        pendingInstallPermission = false
+        message = "Installing…"
+        launchInstaller(context, file)
+    }
+
+    fun onResume(context: Context) {
+        val file = downloadedFile ?: run {
+            val cached = File(context.applicationContext.cacheDir, "updater/update.apk")
+            val rel = release
+            if (rel != null && cached.exists() && isFileValid(cached, rel)) cached else null
+        } ?: return
+
+        downloadedFile = file
+
+        if (pendingInstallPermission) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()) {
+                pendingInstallPermission = false
+                prompt = true
+                message = "Ready to install"
+                launchInstaller(context, file)
+            }
+        }
+    }
+
+    private fun launchInstaller(context: Context, file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            runCatching {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    if (!app.packageManager.canRequestPackageInstalls()) {
-                        val manageIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                            data = android.net.Uri.parse("package:${app.packageName}")
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        app.startActivity(manageIntent)
-                        return@runCatching
-                    }
-                }
-                app.startActivity(intent)
-            }.onFailure { message = "Could not open installer: ${it.message}" }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            message = "Could not open installer: ${e.message}"
         }
     }
 

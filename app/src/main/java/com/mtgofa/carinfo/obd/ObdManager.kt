@@ -227,7 +227,7 @@ object Obd {
         is Target.Bt -> {
             val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter
                 ?: throw ObdException("This phone has no Bluetooth")
-            if (!adapter.isEnabled) throw ObdException("Bluetooth is off.\nTurn it on and try again.")
+            if (!adapter.isEnabled) throw ObdException("Bluetooth is off")
             val device = adapter.getRemoteDevice(target.address)
             when (device.type) {
                 BluetoothDevice.DEVICE_TYPE_LE -> BleTransport(app, device).also { it.open() }

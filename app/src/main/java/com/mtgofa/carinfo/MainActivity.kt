@@ -92,6 +92,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        Updater.onResume(this)
+    }
+
     @Composable
     private fun Screen(route: Route, go: (Route) -> Unit, back: () -> Unit, connect: () -> Unit) {
                     when (route) {
