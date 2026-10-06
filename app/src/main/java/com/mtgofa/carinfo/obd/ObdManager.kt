@@ -419,6 +419,16 @@ object Obd {
     }
 
     /** Mode 01 PID 01: MIL lamp state and number of stored codes. */
+    /** PID 01 decoded: lamp, code count and readiness monitors. */
+    suspend fun readiness(): Readiness? = elm?.readPidRetry(0x01)?.let { Readiness.decode(it) }
+
+    /** One decoded reading on demand (null when unsupported or no answer). */
+    suspend fun readValue(pid: Int): Double? {
+        val e = elm ?: return null
+        if (!isSupported(pid)) return null
+        return e.readPidRetry(pid, 2)?.let { Pids[pid]?.decode?.invoke(it) }
+    }
+
     suspend fun monitorStatus(): Pair<Boolean, Int>? {
         val e = elm ?: return null
         val d = e.readPid(0x01) ?: return null

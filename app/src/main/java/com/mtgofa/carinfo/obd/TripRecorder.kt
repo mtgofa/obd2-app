@@ -67,6 +67,7 @@ object TripRecorder {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var dir: File
     private var job: Job? = null
+    private var appContext: Context? = null
 
     var recording by mutableStateOf(false); private set
     var current by mutableStateOf<TripSummary?>(null); private set
@@ -81,6 +82,7 @@ object TripRecorder {
         if (recording) return
         recording = true
         val app = context.applicationContext
+        appContext = app
         startService(app)
         Obd.subscribe(OWNER, fast = listOf(0x0D, 0x0C, 0x0E, 0x04), slow = COLUMNS.filter { it < 0x1000 || it == Virtual.BATTERY } + 0x33)
         job = scope.launch { record() }
@@ -118,6 +120,7 @@ object TripRecorder {
         var lastCodes = emptyList<String>()
         var lastDtcCheck = 0L
         var lastSave = start
+        var lastNotify = 0L
         var lastLink: Link? = null
         var overheating = false
         var lowCharge = false
@@ -233,6 +236,14 @@ object TripRecorder {
                         save(summary(now))
                     }
                     current = summary(now)
+                    if (now - lastNotify >= 5000) {
+                        lastNotify = now
+                        val s = current!!
+                        val km = "%.1f km".format(Locale.US, s.distanceKm)
+                        val status = if (link.state == LinkState.Connected) "" else " · waiting for car"
+                        val issues = if (s.problems > 0) " · ${s.problems} problem${if (s.problems > 1) "s" else ""}" else ""
+                        if (recording) appContext?.let { TripService.update(it, "${clock(now - start)} · $km$issues$status") }
+                    }
                     delay(1000 - (System.currentTimeMillis() - now) % 1000)
                 }
             } finally {
@@ -242,9 +253,16 @@ object TripRecorder {
                     save(summary(System.currentTimeMillis()))
                     current = null
                     version++
+                    // A refresh racing with Stop could re-post the notification; make sure it's gone.
+                    appContext?.let { TripService.cancel(it) }
                 }
             }
         }
+    }
+
+    private fun clock(ms: Long): String {
+        val s = ms / 1000
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
     }
 
     // ---------------------------------------------------------------- storage

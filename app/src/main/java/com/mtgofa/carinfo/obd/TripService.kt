@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -21,22 +22,15 @@ class TripService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Trip recording", NotificationManager.IMPORTANCE_LOW))
+        if (intent?.action == ACTION_STOP) {
+            TripRecorder.stop(this)
+            return START_NOT_STICKY
         }
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        @Suppress("DEPRECATION")
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
-        val n = builder
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Recording trip")
-            .setContentText("Car Info is saving your readings")
-            .setContentIntent(open)
-            .setOngoing(true)
-            .build()
+        if (Build.VERSION.SDK_INT >= 26) {
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(NotificationChannel(CHANNEL, "Trip recording", NotificationManager.IMPORTANCE_LOW))
+        }
+        val n = build(this, "Starting…")
         try {
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
@@ -50,8 +44,42 @@ class TripService : Service() {
         return START_NOT_STICKY
     }
 
-    private companion object {
-        const val CHANNEL = "trip"
-        const val ID = 42
+    companion object {
+        private const val CHANNEL = "trip"
+        private const val ID = 42
+        private const val ACTION_STOP = "com.mtgofa.carinfo.STOP_TRIP"
+
+        /** Ongoing notification: live time / distance / problems and a Stop button. */
+        fun build(context: Context, text: String): Notification {
+            val open = PendingIntent.getActivity(
+                context, 0, Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val stop = PendingIntent.getService(
+                context, 1, Intent(context, TripService::class.java).setAction(ACTION_STOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            @Suppress("DEPRECATION")
+            val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else Notification.Builder(context)
+            @Suppress("DEPRECATION")
+            return builder
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Recording trip")
+                .setContentText(text)
+                .setContentIntent(open)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .addAction(Notification.Action.Builder(null, "Stop recording", stop).build())
+                .build()
+        }
+
+        fun cancel(context: Context) {
+            runCatching { context.getSystemService(NotificationManager::class.java).cancel(ID) }
+        }
+
+        /** Refresh the text; cheap, and silent thanks to the low-importance channel. */
+        fun update(context: Context, text: String) {
+            runCatching { context.getSystemService(NotificationManager::class.java).notify(ID, build(context, text)) }
+        }
     }
 }

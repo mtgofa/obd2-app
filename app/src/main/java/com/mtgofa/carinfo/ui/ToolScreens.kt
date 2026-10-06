@@ -66,6 +66,13 @@ import com.mtgofa.carinfo.obd.Pids
 import com.mtgofa.carinfo.obd.Virtual
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.mtgofa.carinfo.obd.DiagScan
+import com.mtgofa.carinfo.obd.DiagStore
+import com.mtgofa.carinfo.obd.Readiness
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Icon
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 // ---------------------------------------------------------------- Monitoring
@@ -127,28 +134,33 @@ private fun MonitorRow(pid: Int, v: Double?) {
 
 // ---------------------------------------------------------------- Diagnosis
 
-private data class DtcScan(
-    val mil: Boolean?, val count: Int?,
-    val stored: List<String>, val pending: List<String>, val permanent: List<String>,
-)
-
 @Composable
 fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
+    val ctx = LocalContext.current
     val link by Obd.link.collectAsState()
     val scope = rememberCoroutineScope()
     var scanning by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<DtcScan?>(null) }
+    // Start from the last saved scan so the page isn't empty while disconnected.
+    var result by remember { mutableStateOf(DiagStore.load(ctx)) }
+    var fresh by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
+    val connected = link.state == LinkState.Connected
 
     fun scan() {
         scanning = true; error = null
         scope.launch {
             try {
-                val status = Obd.monitorStatus()
+                val readiness = Obd.readiness()
                 val (s, p, perm) = Obd.readDtcs()
-                result = DtcScan(status?.first, status?.second, s, p, perm)
+                val scan = DiagScan(
+                    System.currentTimeMillis(), s, p, perm, readiness,
+                    kmSinceClear = Obd.readValue(0x31), kmWithMil = Obd.readValue(0x21),
+                )
+                result = scan
+                fresh = true
+                DiagStore.save(ctx, scan)
             } catch (e: Exception) {
                 error = e.message
             }
@@ -156,31 +168,36 @@ fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
         }
     }
 
-    LaunchedEffect(link.state) { if (link.state == LinkState.Connected && result == null) scan() }
+    LaunchedEffect(link.state) { if (connected && !fresh) scan() }
 
     ScreenScaffold("Vehicle diagnosis", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
-
             val r = result
-            AppCard(Modifier.fillMaxWidth(), accent = if (r?.mil == true) AppColors.red else AppColors.green) {
+            val mil = r?.readiness?.mil
+            AppCard(Modifier.fillMaxWidth(), accent = if (mil == true) AppColors.red else if (r == null) null else AppColors.green) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(14.dp).clip(CircleShape)
-                            .background(if (r?.mil == true) AppColors.red else if (r == null) AppColors.dim else AppColors.green)
+                    Icon(
+                        CheckEngineIcon, null, Modifier.size(30.dp),
+                        tint = if (mil == true) AppColors.amber else if (r == null) AppColors.dim else AppColors.green,
                     )
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             when {
                                 r == null -> "Not scanned yet"
-                                r.mil == true -> "Check engine light is ON"
+                                mil == true -> "Check engine light is ON"
                                 r.stored.isEmpty() && r.pending.isEmpty() -> "No faults found"
                                 else -> "Faults found"
                             },
                             color = AppColors.text, fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
                         )
-                        if (r != null) Text(
-                            "${r.stored.size} stored · ${r.pending.size} pending · ${r.permanent.size} permanent",
+                        Text(
+                            if (r == null) "Connect to the car to read fault codes and readiness."
+                            else "${r.stored.size} stored · ${r.pending.size} pending · ${r.permanent.size} permanent",
+                            color = AppColors.dim, fontSize = 12.sp,
+                        )
+                        if (r != null && !fresh) Text(
+                            "Last scan: " + SimpleDateFormat("EEE d MMM · HH:mm", Locale.US).format(Date(r.timeMs)),
                             color = AppColors.dim, fontSize = 12.sp,
                         )
                     }
@@ -189,10 +206,10 @@ fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppButton("Scan codes", { scan() }, Modifier.weight(1f), enabled = link.state == LinkState.Connected && !scanning)
+                AppButton("Scan codes", { scan() }, Modifier.weight(1f), enabled = connected && !scanning)
                 AppButton(
                     "Clear codes", { confirmClear = true }, Modifier.weight(1f), color = AppColors.red,
-                    enabled = link.state == LinkState.Connected && !scanning,
+                    enabled = connected && !scanning,
                 )
             }
             error?.let { Text(it, color = AppColors.red, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp)) }
@@ -201,7 +218,14 @@ fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
                 DtcSection("Stored codes", r.stored, AppColors.red)
                 DtcSection("Pending codes", r.pending, AppColors.amber)
                 DtcSection("Permanent codes", r.permanent, AppColors.magenta)
+                if (r.kmSinceClear != null || r.kmWithMil != null) {
+                    SectionLabel("History")
+                    r.kmSinceClear?.let { KeyValue("Driven since codes were cleared", Fmt.value(PidUnit.KM, it) + " " + Fmt.unit(PidUnit.KM)) }
+                    r.kmWithMil?.let { KeyValue("Driven with check engine on", Fmt.value(PidUnit.KM, it) + " " + Fmt.unit(PidUnit.KM)) }
+                }
+                r.readiness?.let { ReadinessSection(it) }
             }
+            if (r == null) AboutDiagnosis()
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -234,6 +258,56 @@ fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
             },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun KeyValue(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 4.dp)) {
+        Text(label, color = AppColors.dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(value, color = AppColors.text, fontSize = 14.sp, fontFamily = Digits)
+    }
+}
+
+@Composable
+private fun ReadinessSection(r: Readiness) {
+    SectionLabel("Readiness monitors")
+    val ready = r.monitors.count { it.complete }
+    Text(
+        "$ready of ${r.monitors.size} self-tests complete. \"Not ready\" means the ECU hasn't finished that test since " +
+            "the codes were cleared or the battery was disconnected — normal driving over a few days completes them. " +
+            "Inspections usually need them ready.",
+        color = AppColors.dim, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp),
+    )
+    r.monitors.forEach { m ->
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(AppColors.card)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(m.name, color = AppColors.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            val color = if (m.complete) AppColors.green else AppColors.amber
+            Text(
+                if (m.complete) "✓ Ready" else "Not ready", color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutDiagnosis() {
+    SectionLabel("What gets checked")
+    listOf(
+        "Stored codes" to "Faults the engine computer has confirmed. These turn on the check engine light.",
+        "Pending codes" to "Faults seen once and being re-checked. They become stored if they happen again.",
+        "Permanent codes" to "Codes only the ECU can clear, after it confirms the fault is gone.",
+        "Readiness monitors" to "The ECU's own self-tests: catalyst, oxygen sensors, misfire, fuel system and more.",
+    ).forEach { (title, text) ->
+        Column(Modifier.padding(vertical = 6.dp, horizontal = 4.dp)) {
+            Text(title, color = AppColors.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(text, color = AppColors.dim, fontSize = 13.sp)
+        }
     }
 }
 
