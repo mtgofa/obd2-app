@@ -11,7 +11,14 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -21,6 +28,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import com.mtgofa.carinfo.ui.ConnectionBar
 import com.mtgofa.carinfo.ui.DarkSection
+import com.mtgofa.carinfo.ui.LocalPalette
 import com.mtgofa.carinfo.ui.UpdatePrompt
 import androidx.compose.runtime.remember
 import com.mtgofa.carinfo.obd.LinkState
@@ -84,9 +92,16 @@ class MainActivity : ComponentActivity() {
                     val dark = route == Route.Dashboard || route == Route.Hud
                     val screen: @Composable () -> Unit = { Screen(route, go, back, connect) }
                     val body: @Composable () -> Unit = {
-                        Column(Modifier.fillMaxSize()) {
-                            Box(Modifier.weight(1f)) { screen() }
-                            if (route != Route.Hud) ConnectionBar { if (route != Route.Connect) go(Route.Connect) }
+                        // Painted background so the strip behind the side nav buttons matches the page.
+                        Box(Modifier.fillMaxSize().background(LocalPalette.current.bgBottom)) {
+                            Column(
+                                Modifier.fillMaxSize()
+                                    .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
+                                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                            ) {
+                                Box(Modifier.weight(1f)) { screen() }
+                                if (route != Route.Hud) ConnectionBar { if (route != Route.Connect) go(Route.Connect) }
+                            }
                         }
                     }
                     if (dark) DarkSection(body) else body()

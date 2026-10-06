@@ -135,6 +135,13 @@ private fun ProvidePalette(p: Palette, content: @Composable () -> Unit) {
     }
 }
 
+/** Phone turned sideways (e.g. on a dash mount): screens use compact bars and side-by-side layouts. */
+@Composable
+fun isLandscape(): Boolean {
+    val c = androidx.compose.ui.platform.LocalConfiguration.current
+    return c.screenWidthDp > c.screenHeightDp
+}
+
 @Composable
 fun AppTheme(content: @Composable () -> Unit) = ProvidePalette(LightPalette, content)
 
@@ -235,7 +242,7 @@ fun ScreenScaffold(
     AppBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
-                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+                Modifier.fillMaxWidth().height(if (isLandscape()) 44.dp else 56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {

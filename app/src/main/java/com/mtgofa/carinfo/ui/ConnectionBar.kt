@@ -71,7 +71,7 @@ fun ConnectionBar(onClick: () -> Unit) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(p.cardBorder))
         Row(
             Modifier.fillMaxWidth().clickable { onClick() }.navigationBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = if (isLandscape()) 3.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             StatusItem(Icons.Rounded.Bluetooth, "OBD2", adapter, Modifier.weight(1f))
@@ -88,9 +88,17 @@ private fun StatusItem(icon: ImageVector, title: String, s: Triple<String, Color
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = AppColors.dim, fontSize = 10.sp, fontFamily = Sora, fontWeight = FontWeight.SemiBold)
-            Text(text, color = AppColors.text, fontSize = 12.sp, maxLines = 1)
+        if (isLandscape()) {
+            // One line in landscape so the bar takes as little height as possible.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = AppColors.dim, fontSize = 11.sp, fontFamily = Sora, fontWeight = FontWeight.SemiBold)
+                Text("  $text", color = AppColors.text, fontSize = 12.sp, maxLines = 1)
+            }
+        } else {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = AppColors.dim, fontSize = 10.sp, fontFamily = Sora, fontWeight = FontWeight.SemiBold)
+                Text(text, color = AppColors.text, fontSize = 12.sp, maxLines = 1)
+            }
         }
         if (busy) CircularProgressIndicator(Modifier.size(12.dp), color = color, strokeWidth = 1.5.dp)
         else Box(Modifier.size(8.dp).clip(CircleShape).background(color))

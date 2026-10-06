@@ -1,6 +1,20 @@
 package com.mtgofa.carinfo.ui
 
 import android.app.Activity
+import android.view.WindowManager
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.LocalView
 import android.content.pm.ActivityInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -91,7 +105,7 @@ fun DashboardScreen(onBack: () -> Unit) {
                         RpmGauge(values[0x0C], Modifier.weight(1f))
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 8.dp, bottom = 12.dp)) {
-                        TileGrid(tiles, values, columns = 2)
+                        TileGrid(tiles, values, columns = 3, valueSize = 22)
                     }
                 }
             } else {
@@ -191,52 +205,105 @@ fun TemperaturesScreen(onBack: () -> Unit) {
 fun HudScreen(onBack: () -> Unit) {
     val values by Obd.values.collectAsState()
     var mirrored by rememberSaveable { mutableStateOf(true) }
+    var controls by remember { mutableStateOf(true) }
     Subscribe("hud", fast = listOf(0x0D, 0x0C), slow = listOf(0x05))
     val activity = LocalContext.current as? Activity
+    val view = LocalView.current
     DisposableEffect(Unit) {
+        val window = activity?.window
         val old = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        onDispose { activity?.requestedOrientation = old ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        // Full screen black: hide the system bars and push brightness up for the windshield reflection.
+        val insets = window?.let { WindowCompat.getInsetsController(it, view) }
+        insets?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insets?.hide(WindowInsetsCompat.Type.systemBars())
+        val oldBrightness = window?.attributes?.screenBrightness
+        window?.attributes = window?.attributes?.apply { screenBrightness = 1f }
+        onDispose {
+            insets?.show(WindowInsetsCompat.Type.systemBars())
+            window?.attributes = window?.attributes?.apply {
+                screenBrightness = oldBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+            activity?.requestedOrientation = old ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+    // The buttons fade away so only the lit numbers are left on a black screen; tap to bring them back.
+    LaunchedEffect(controls) {
+        if (controls) {
+            delay(3000)
+            controls = false
+        }
     }
     val speed = values[0x0D]
     val rpm = values[0x0C]
-    Box(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding()) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { controls = true }
+    ) {
         BoxWithConstraints(
-            Modifier.fillMaxSize().graphicsLayer { scaleX = if (mirrored) -1f else 1f }.clickable { mirrored = !mirrored },
+            Modifier.fillMaxSize().graphicsLayer { scaleX = if (mirrored) -1f else 1f },
             contentAlignment = Alignment.Center,
         ) {
-            val big = (maxHeight.value * 0.4f).sp
-            val barWidth = maxWidth * 0.6f
+            val h = maxHeight.value
+            val w = maxWidth.value
+            // As big as three digits fit: monospace digits are ~0.6 em wide.
+            // Line height is pinned to the font size, so these fractions add up to the screen height.
+            val big = minOf(h * 0.5f, w * 0.46f).sp
+            val small = (h * 0.14f).sp
+            val barWidth = maxWidth * 0.7f
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                GlowText(Fmt.value(PidUnit.SPEED, speed), AppColors.green, big)
-                Text(Fmt.unit(PidUnit.SPEED), color = AppColors.green.copy(alpha = 0.7f), fontSize = 22.sp, fontFamily = Sora)
-                Spacer(Modifier.height(16.dp))
+                HudGlow(Fmt.value(PidUnit.SPEED, speed), Color(0xFF39FF88), big)
+                Text(Fmt.unit(PidUnit.SPEED), color = Color(0xFF39FF88).copy(alpha = 0.6f), fontSize = (h * 0.05f).sp, fontFamily = Sora,
+                    style = TextStyle(lineHeight = (h * 0.06f).sp))
+                Spacer(Modifier.height((h * 0.03f).dp))
                 val f = ((rpm ?: 0.0) / 7000).toFloat().coerceIn(0f, 1f)
-                Box(Modifier.width(barWidth).height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = 0.1f))) {
-                    Box(
-                        Modifier.fillMaxWidth(f).height(10.dp).clip(RoundedCornerShape(5.dp))
-                            .background(if ((rpm ?: 0.0) > 5500) AppColors.red else AppColors.cyan)
-                    )
+                val barColor = if ((rpm ?: 0.0) > 5500) Color(0xFFFF4D5E) else Color(0xFF22E5FF)
+                Box(Modifier.width(barWidth).height(14.dp).clip(RoundedCornerShape(7.dp)).background(Color.White.copy(alpha = 0.08f))) {
+                    Box(Modifier.fillMaxWidth(f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(barColor))
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GlowText(Fmt.value(PidUnit.RPM, rpm), AppColors.cyan, 34.sp)
-                    Text("  rpm     ", color = AppColors.dim, fontSize = 16.sp)
-                    GlowText(Fmt.value(PidUnit.TEMP, values[0x05]), tempColor(0x05, values[0x05]), 34.sp)
-                    Text(" ${Fmt.unit(PidUnit.TEMP)}", color = AppColors.dim, fontSize = 16.sp)
+                Spacer(Modifier.height((h * 0.03f).dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    HudGlow(Fmt.value(PidUnit.RPM, rpm), Color(0xFF22E5FF), small)
+                    Text(" rpm", color = Color(0xFF22E5FF).copy(alpha = 0.6f), fontSize = (h * 0.045f).sp)
+                    Spacer(Modifier.width((w * 0.06f).dp))
+                    val ct = values[0x05]
+                    val ctColor = if (ct != null && ct >= 110) Color(0xFFFF4D5E) else if (ct != null && ct < 60) Color(0xFF22E5FF) else Color(0xFFFFC23D)
+                    HudGlow(Fmt.value(PidUnit.TEMP, ct), ctColor, small)
+                    Text(" " + Fmt.unit(PidUnit.TEMP), color = ctColor.copy(alpha = 0.6f), fontSize = (h * 0.045f).sp)
                 }
             }
         }
-        Row(Modifier.align(Alignment.TopStart)) {
+        if (controls) Row(Modifier.align(Alignment.TopStart).padding(8.dp)) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = AppColors.dim)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White.copy(alpha = 0.6f))
             }
-            IconButton(onClick = { mirrored = !mirrored }) { Icon(Icons.Rounded.Flip, "Mirror", tint = AppColors.dim) }
+            IconButton(onClick = { mirrored = !mirrored; controls = true }) {
+                Icon(Icons.Rounded.Flip, "Mirror", tint = Color.White.copy(alpha = 0.6f))
+            }
+        }
+    }
+}
+
+/** Extra-bright neon for the HUD: wide halo, strong glow, then a near-white core. */
+@Composable
+private fun HudGlow(text: String, color: Color, size: TextUnit) {
+    val px = with(LocalDensity.current) { size.toPx() }
+    Box(contentAlignment = Alignment.Center) {
+        for ((alpha, blur) in listOf(0.9f to px * 0.5f, 1f to px * 0.22f)) {
+            Text(
+                text, maxLines = 1,
+                style = TextStyle(
+                    color = color.copy(alpha = alpha), fontSize = size, fontFamily = Digits, fontWeight = FontWeight.Medium,
+                    shadow = Shadow(color, blurRadius = blur), lineHeight = size * 1.05f,
+                ),
+            )
         }
         Text(
-            if (mirrored) "Mirrored for windshield · tap to flip" else "Tap to mirror for windshield",
-            color = AppColors.dim.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Normal,
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+            text, maxLines = 1,
+            style = TextStyle(
+                color = lerp(color, Color.White, 0.65f), fontSize = size, fontFamily = Digits, fontWeight = FontWeight.Medium,
+                shadow = Shadow(color, blurRadius = px * 0.06f), lineHeight = size * 1.05f,
+            ),
         )
     }
 }

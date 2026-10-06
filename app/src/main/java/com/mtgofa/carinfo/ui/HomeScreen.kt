@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtgofa.carinfo.Fmt
@@ -78,71 +79,95 @@ fun HomeScreen(go: (Route) -> Unit) {
     val values by Obd.values.collectAsState()
     Subscribe("home", fast = listOf(0x0D, 0x0C), slow = listOf(0x05))
 
+    val carCard: @Composable () -> Unit = {
+        // Car card: detected vehicle + connect button, then three live numbers.
+        AppCard(Modifier.fillMaxWidth(), onClick = { go(Route.Connect) }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandBadge(vehicle?.make)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (link.state == LinkState.Connected) vehicle?.title ?: "Vehicle" else "No vehicle connected",
+                        color = AppColors.text, fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1,
+                    )
+                    Text(
+                        when (link.state) {
+                            LinkState.Connected -> link.via
+                            LinkState.Error -> link.message
+                            LinkState.Disconnected -> "Tap to connect your ELM327 adapter"
+                            else -> link.message
+                        },
+                        color = if (link.state == LinkState.Error) AppColors.red else AppColors.dim, fontSize = 12.sp, maxLines = 2,
+                    )
+                }
+                StatusPill(link.state)
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                QuickValue("Speed", Fmt.value(PidUnit.SPEED, values[0x0D]), Fmt.unit(PidUnit.SPEED), AppColors.cyan, Modifier.weight(1f))
+                QuickValue("RPM", Fmt.value(PidUnit.RPM, values[0x0C]), "rpm", AppColors.magenta, Modifier.weight(1f))
+                QuickValue("Coolant", Fmt.value(PidUnit.TEMP, values[0x05]), Fmt.unit(PidUnit.TEMP), tempColor(0x05, values[0x05]), Modifier.weight(1f))
+            }
+        }
+    }
+    val header: @Composable (Dp) -> Unit = { h ->
+        Row(Modifier.fillMaxWidth().height(h), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Logo(if (h < 60.dp) 20.sp else 24.sp) }
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).clickable { go(Route.Settings) },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Settings, "Settings", tint = AppColors.text) }
+        }
+    }
+
     AppBackground {
-        Column(
-            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
-        ) {
-            Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp))
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Logo() }
-                Box(
-                    Modifier.size(40.dp).clip(CircleShape).clickable { go(Route.Settings) },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Rounded.Settings, "Settings", tint = AppColors.text) }
-            }
-
-            // Car card: detected vehicle + connect button, then three live numbers.
-            AppCard(Modifier.fillMaxWidth(), onClick = { go(Route.Connect) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BrandBadge(vehicle?.make)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (link.state == LinkState.Connected) vehicle?.title ?: "Vehicle" else "No vehicle connected",
-                            color = AppColors.text, fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1,
-                        )
-                        Text(
-                            when (link.state) {
-                                LinkState.Connected -> link.via
-                                LinkState.Error -> link.message
-                                LinkState.Disconnected -> "Tap to connect your ELM327 adapter"
-                                else -> link.message
-                            },
-                            color = if (link.state == LinkState.Error) AppColors.red else AppColors.dim, fontSize = 12.sp, maxLines = 2,
-                        )
+        if (isLandscape()) {
+            // Landscape (phone on a dash mount): car card on the left, features on the right,
+            // everything visible without scrolling the whole page.
+            Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+                header(44.dp)
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(Modifier.weight(0.9f).verticalScroll(rememberScrollState())) { carCard() }
+                    Column(Modifier.weight(1.3f).verticalScroll(rememberScrollState())) {
+                        FeatureGrid(go, aspect = 1.9f, iconSize = 28.dp)
                     }
-                    StatusPill(link.state)
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    QuickValue("Speed", Fmt.value(PidUnit.SPEED, values[0x0D]), Fmt.unit(PidUnit.SPEED), AppColors.cyan, Modifier.weight(1f))
-                    QuickValue("RPM", Fmt.value(PidUnit.RPM, values[0x0C]), "rpm", AppColors.magenta, Modifier.weight(1f))
-                    QuickValue("Coolant", Fmt.value(PidUnit.TEMP, values[0x05]), Fmt.unit(PidUnit.TEMP), tempColor(0x05, values[0x05]), Modifier.weight(1f))
                 }
             }
-
-            Spacer(Modifier.height(16.dp))
-            features.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    row.forEach { f -> FeatureTile(f, Modifier.weight(1f)) { go(f.route) } }
-                }
-                Spacer(Modifier.height(12.dp))
+        } else {
+            Column(
+                Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+            ) {
+                header(60.dp)
+                carCard()
+                Spacer(Modifier.height(16.dp))
+                FeatureGrid(go, aspect = 0.95f, iconSize = 36.dp)
+                Text(
+                    "All features unlocked",
+                    color = AppColors.dim.copy(alpha = 0.7f), fontSize = 11.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                )
             }
-            Text(
-                "All features unlocked",
-                color = AppColors.dim.copy(alpha = 0.7f), fontSize = 11.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            )
         }
     }
 }
 
 @Composable
-private fun FeatureTile(f: Feature, modifier: Modifier, onClick: () -> Unit) {
+private fun FeatureGrid(go: (Route) -> Unit, aspect: Float, iconSize: Dp) {
+    features.chunked(3).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            row.forEach { f -> FeatureTile(f, Modifier.weight(1f), aspect, iconSize) { go(f.route) } }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun FeatureTile(f: Feature, modifier: Modifier, aspect: Float, iconSize: Dp, onClick: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
     Column(
         modifier
-            .aspectRatio(0.95f)
+            .aspectRatio(aspect)
             .clip(shape)
             .background(AppColors.card)
             .border(1.dp, AppColors.cardBorder, shape)
@@ -151,7 +176,7 @@ private fun FeatureTile(f: Feature, modifier: Modifier, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(f.icon, null, tint = f.color(LocalPalette.current), modifier = Modifier.size(36.dp))
+        Icon(f.icon, null, tint = f.color(LocalPalette.current), modifier = Modifier.size(iconSize))
         Spacer(Modifier.height(8.dp))
         Text(
             f.title, color = AppColors.text, fontSize = 13.sp, fontFamily = Sora, fontWeight = FontWeight.SemiBold,
