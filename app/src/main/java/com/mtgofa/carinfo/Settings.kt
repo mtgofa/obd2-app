@@ -60,7 +60,7 @@ object Fmt {
             PidUnit.SPEED, PidUnit.RPM, PidUnit.TEMP, PidUnit.KPA, PidUnit.SEC, PidUnit.MIN -> "%.0f".format(Locale.US, x)
             PidUnit.KM -> if (x >= 1000) "%,.0f".format(Locale.US, x) else "%.1f".format(Locale.US, x)
             PidUnit.VOLT, PidUnit.LPH, PidUnit.L100, PidUnit.KML, PidUnit.LITER, PidUnit.GPS, PidUnit.DEG -> "%.1f".format(Locale.US, x)
-            PidUnit.RATIO -> "%.2f".format(Locale.US, x)
+            PidUnit.RATIO, PidUnit.BAR -> "%.2f".format(Locale.US, x)
             else -> "%.0f".format(Locale.US, x)
         }
     }

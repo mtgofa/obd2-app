@@ -58,7 +58,7 @@ fun Subscribe(owner: String, fast: List<Int>, slow: List<Int> = emptyList()) {
     }
 }
 
-private val extraPids = listOf(Virtual.BATTERY, 0x04, 0x11, 0x2F, 0x0B, 0x10, 0x0E, 0x42, Virtual.FUEL_RATE)
+private val extraPids = listOf(Virtual.BATTERY, 0x04, Virtual.BOOST, 0x11, 0x2F, 0x10, 0x0E, 0x42, Virtual.FUEL_RATE)
 
 /** Temperature + other tiles that the car actually supports (or a sensible default set while offline). */
 @Composable
@@ -66,7 +66,11 @@ private fun visibleTiles(): List<Int> {
     val supported by Obd.supported.collectAsState()
     val link by Obd.link.collectAsState()
     return if (link.state != LinkState.Connected) listOf(0x05, 0x5C, 0x0F, 0x46, Virtual.BATTERY, 0x04)
-    else (Pids.temperatures + extraPids).filter { it >= 0x1000 || supported.isEmpty() || it in supported }
+    else (Pids.temperatures + extraPids).filter {
+        // Boost is computed from manifold pressure, so it needs PID 0B.
+        val needed = if (it == Virtual.BOOST) 0x0B else it
+        needed >= 0x1000 || supported.isEmpty() || needed in supported
+    }
 }
 
 @Composable

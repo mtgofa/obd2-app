@@ -345,8 +345,15 @@ object Obd {
         }
     }
 
+    /** Atmospheric pressure (kPa): PID 33 when supported, else MAP read with the engine stopped. */
+    private var baroKpa = 101.3
+
     private fun computeDerived() {
         val v = _values.value
+        v[0x0B]?.let { map ->
+            v[0x33]?.let { baroKpa = it }
+                ?: run { if ((v[0x0C] ?: 1.0) < 1.0) baroKpa = map }
+        }
         val now = System.nanoTime()
         val dt = if (lastTick == 0L) 0.0 else ((now - lastTick) / 1e9).coerceAtMost(2.0)
         lastTick = now
@@ -378,6 +385,7 @@ object Obd {
         out[Virtual.TRIP_KM] = tripKm
         out[Virtual.TRIP_FUEL] = tripFuel
         if (tripKm > 0.1) out[Virtual.TRIP_AVG] = tripFuel / tripKm * 100
+        v[0x0B]?.let { out[Virtual.BOOST] = (it - baroKpa) / 100 }
         _values.update { it + out }
     }
 

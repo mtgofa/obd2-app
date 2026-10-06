@@ -83,7 +83,8 @@ fun MonitorScreen(onBack: () -> Unit, connect: () -> Unit) {
     val values by Obd.values.collectAsState()
     val supported by Obd.supported.collectAsState()
     val pids = remember(supported) {
-        listOf(Virtual.BATTERY) + Pids.all.filter { supported.isEmpty() || it.id in supported }.map { it.id }
+        val raw = Pids.all.filter { supported.isEmpty() || it.id in supported }.map { it.id }
+        listOf(Virtual.BATTERY) + (if (0x0B in raw) listOf(Virtual.BOOST) else emptyList()) + raw
     }
     Subscribe("monitor", fast = emptyList(), slow = pids)
     ScreenScaffold("Live monitoring", onBack) {

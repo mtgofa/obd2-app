@@ -3,7 +3,7 @@ package com.mtgofa.carinfo.obd
 enum class PidUnit(val symbol: String) {
     SPEED("km/h"), RPM("rpm"), TEMP("°C"), PERCENT("%"), KPA("kPa"), VOLT("V"), GPS("g/s"),
     DEG("°"), SEC("s"), MIN("min"), KM("km"), LPH("L/h"), L100("L/100km"), KML("km/L"),
-    LITER("L"), RATIO("λ"), NONE("")
+    LITER("L"), RATIO("λ"), BAR("bar"), NONE("")
 }
 
 enum class Category { Engine, Temperature, Fuel, Air, Electrical, Status }
@@ -28,6 +28,7 @@ object Virtual {
     const val TRIP_KM = 0x1004
     const val TRIP_FUEL = 0x1005
     const val TRIP_AVG = 0x1006     // L/100km over the trip
+    const val BOOST = 0x1007        // manifold pressure above atmospheric, bar (negative = vacuum)
 }
 
 private fun a(d: IntArray) = d.getOrNull(0)?.toDouble()
@@ -123,6 +124,7 @@ object Pids {
         Pid(Virtual.TRIP_KM, "Trip distance", "Trip", PidUnit.KM, 0.0, 1000.0, Category.Fuel) { null },
         Pid(Virtual.TRIP_FUEL, "Trip fuel used", "Used", PidUnit.LITER, 0.0, 100.0, Category.Fuel) { null },
         Pid(Virtual.TRIP_AVG, "Trip average", "Average", PidUnit.L100, 0.0, 30.0, Category.Fuel) { null },
+        Pid(Virtual.BOOST, "Boost pressure", "Boost", PidUnit.BAR, -1.0, 2.0, Category.Air) { null },
     ).associateBy { it.id }
 
     /** Every temperature PID, ordered the way the dashboard shows them. */
