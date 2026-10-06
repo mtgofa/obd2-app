@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tv
@@ -62,14 +61,14 @@ private class Feature(val title: String, val icon: ImageVector, val route: Route
 private val features = listOf(
     Feature("Dashboard", Icons.Rounded.Speed, Route.Dashboard, { it.cyan }),
     Feature("Monitoring", Icons.Rounded.MonitorHeart, Route.Monitor, { it.green }),
-    Feature("Trip record", Icons.Rounded.History, Route.Trips, { it.red }),
     Feature("Diagnosis", CheckEngineIcon, Route.Diagnosis, { it.amber }),
     Feature("Temperatures", Icons.Rounded.Thermostat, Route.Temps, { it.red }),
     Feature("HUD", Icons.Rounded.Tv, Route.Hud, { it.magenta }),
     Feature("Fuel", Icons.Rounded.LocalGasStation, Route.Fuel, { it.green }),
     Feature("Performance", Icons.Rounded.Timer, Route.Performance, { it.violet }),
     Feature("Vehicle info", Icons.Rounded.DirectionsCar, Route.Info, { it.blue }),
-    Feature("Terminal", Icons.Rounded.Terminal, Route.Terminal, { it.dim }),
+    // Terminal hidden from the home grid for now; Route.Terminal still works.
+    Feature("Trip record", Icons.Rounded.History, Route.Trips, { it.red }),
 )
 
 @Composable
