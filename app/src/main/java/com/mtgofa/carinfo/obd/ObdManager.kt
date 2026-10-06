@@ -177,7 +177,8 @@ object Obd {
                     delay(3000)
                     if (!transport.alive) throw ObdException("Connection to the adapter was lost")
                 }
-                _supported.value = runCatching { e.supportedPids() }.getOrDefault(emptySet())
+                val listed = runCatching { e.supportedPids() }.getOrDefault(emptySet())
+                _supported.value = listed + probeUnlisted(e, listed)
                 _vehicle.value = detectVehicle(e)
                 Settings.updateLastTarget(target.encode())
                 resetTrip()
@@ -243,6 +244,15 @@ object Obd {
                 }
             }
         }
+    }
+
+    /**
+     * Some ECUs answer PIDs their support bitmap leaves out. For the ones we'd otherwise have to
+     * estimate (barometric pressure feeds the boost reading), ask once directly before giving up.
+     */
+    private suspend fun probeUnlisted(e: Elm327, listed: Set<Int>): Set<Int> {
+        if (listed.isEmpty()) return emptySet()
+        return listOf(0x33).filter { it !in listed && runCatching { e.readPidRetry(it, 2) }.getOrNull() != null }.toSet()
     }
 
     private suspend fun detectVehicle(e: Elm327): Vehicle {

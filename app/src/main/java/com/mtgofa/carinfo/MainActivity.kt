@@ -40,6 +40,9 @@ import com.mtgofa.carinfo.ui.Route
 import com.mtgofa.carinfo.ui.SettingsScreen
 import com.mtgofa.carinfo.ui.TemperaturesScreen
 import com.mtgofa.carinfo.ui.TerminalScreen
+import com.mtgofa.carinfo.ui.TripDetailScreen
+import com.mtgofa.carinfo.ui.TripNav
+import com.mtgofa.carinfo.ui.TripsScreen
 import com.mtgofa.carinfo.ui.hasBtPermissions
 
 class MainActivity : ComponentActivity() {
@@ -112,6 +115,8 @@ class MainActivity : ComponentActivity() {
                         Route.Info -> InfoScreen(back, connect)
                         Route.Terminal -> TerminalScreen(back)
                         Route.Settings -> SettingsScreen(back)
+                        Route.Trips -> TripsScreen(back) { id -> TripNav.selected = id; go(Route.TripDetail) }
+                        Route.TripDetail -> TripDetailScreen(back)
                     }
     }
 }

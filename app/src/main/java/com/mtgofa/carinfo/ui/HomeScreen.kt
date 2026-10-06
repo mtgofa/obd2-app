@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.Settings
@@ -54,14 +55,15 @@ import com.mtgofa.carinfo.obd.Obd
 import com.mtgofa.carinfo.obd.PidUnit
 import com.mtgofa.carinfo.obd.Pids
 
-enum class Route { Home, Connect, Dashboard, Temps, Monitor, Diagnosis, Hud, Fuel, Performance, Info, Terminal, Settings }
+enum class Route { Home, Connect, Dashboard, Temps, Monitor, Diagnosis, Hud, Fuel, Performance, Info, Terminal, Settings, Trips, TripDetail }
 
 private class Feature(val title: String, val icon: ImageVector, val route: Route, val color: (Palette) -> Color)
 
 private val features = listOf(
     Feature("Dashboard", Icons.Rounded.Speed, Route.Dashboard, { it.cyan }),
     Feature("Monitoring", Icons.Rounded.MonitorHeart, Route.Monitor, { it.green }),
-    Feature("Diagnosis", Icons.Rounded.Build, Route.Diagnosis, { it.amber }),
+    Feature("Trip record", Icons.Rounded.History, Route.Trips, { it.red }),
+    Feature("Diagnosis", CheckEngineIcon, Route.Diagnosis, { it.amber }),
     Feature("Temperatures", Icons.Rounded.Thermostat, Route.Temps, { it.red }),
     Feature("HUD", Icons.Rounded.Tv, Route.Hud, { it.magenta }),
     Feature("Fuel", Icons.Rounded.LocalGasStation, Route.Fuel, { it.green }),
@@ -128,7 +130,7 @@ fun HomeScreen(go: (Route) -> Unit) {
                 Spacer(Modifier.height(12.dp))
             }
             Text(
-                "All features unlocked · No account · No ads",
+                "All features unlocked",
                 color = AppColors.dim.copy(alpha = 0.7f), fontSize = 11.sp, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             )

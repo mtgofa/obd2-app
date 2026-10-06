@@ -57,6 +57,8 @@ import com.mtgofa.carinfo.Settings
 import com.mtgofa.carinfo.Updater
 import com.mtgofa.carinfo.obd.Category
 import com.mtgofa.carinfo.obd.Dtc
+import com.mtgofa.carinfo.obd.KnockMonitor
+import com.mtgofa.carinfo.obd.KnockStats
 import com.mtgofa.carinfo.obd.LinkState
 import com.mtgofa.carinfo.obd.Obd
 import com.mtgofa.carinfo.obd.PidUnit
@@ -65,16 +67,6 @@ import com.mtgofa.carinfo.obd.Virtual
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
-
-@Composable
-fun NotConnectedHint(go: () -> Unit) {
-    val link by Obd.link.collectAsState()
-    if (link.state == LinkState.Connected) return
-    AppCard(Modifier.fillMaxWidth().padding(bottom = 12.dp), onClick = go, accent = AppColors.amber) {
-        Text("Not connected", color = AppColors.amber, fontFamily = Sora, fontWeight = FontWeight.SemiBold)
-        Text("Tap to connect to your OBD2 adapter.", color = AppColors.dim, fontSize = 13.sp)
-    }
-}
 
 // ---------------------------------------------------------------- Monitoring
 
@@ -89,7 +81,7 @@ fun MonitorScreen(onBack: () -> Unit, connect: () -> Unit) {
     Subscribe("monitor", fast = emptyList(), slow = pids)
     ScreenScaffold("Live monitoring", onBack) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-            item { NotConnectedHint(connect) }
+
             item {
                 Text(
                     "${pids.size} live values available on this car",
@@ -168,7 +160,7 @@ fun DiagnosisScreen(onBack: () -> Unit, connect: () -> Unit) {
 
     ScreenScaffold("Vehicle diagnosis", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
-            NotConnectedHint(connect)
+
             val r = result
             AppCard(Modifier.fillMaxWidth(), accent = if (r?.mil == true) AppColors.red else AppColors.green) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -272,10 +264,12 @@ private fun DtcSection(title: String, codes: List<String>, color: Color) {
 @Composable
 fun FuelScreen(onBack: () -> Unit, connect: () -> Unit) {
     val values by Obd.values.collectAsState()
-    Subscribe("fuel", fast = listOf(0x0D, 0x10, 0x5E, 0x0C, 0x0B), slow = listOf(0x0F, 0x2F, 0x06, 0x07))
+    // Timing (0E) and load (04) are polled fast so sudden timing pulls (knock) aren't missed.
+    Subscribe("fuel", fast = listOf(0x0D, 0x0C, 0x0E, 0x04, 0x10, 0x5E, 0x0B), slow = listOf(0x0F, 0x2F, 0x06, 0x07))
+    val knock by KnockMonitor.stats.collectAsState()
     ScreenScaffold("Fuel economy", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
-            NotConnectedHint(connect)
+
             val speed = values[0x0D] ?: 0.0
             val eco = values[Virtual.KM_PER_L]
             AppCard(Modifier.fillMaxWidth(), accent = AppColors.green) {
@@ -298,6 +292,7 @@ fun FuelScreen(onBack: () -> Unit, connect: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             TileGrid(listOf(Virtual.FUEL_RATE, 0x2F, Virtual.TRIP_KM, Virtual.TRIP_FUEL, Virtual.TRIP_AVG, 0x07), values, columns = 2)
             AppButton("Reset trip", { Obd.resetTrip() }, Modifier.fillMaxWidth())
+            FuelQualityCard(knock)
             Text(
                 when {
                     values[0x5E] != null -> "Using the ECU's own fuel-rate reading."
@@ -307,6 +302,43 @@ fun FuelScreen(onBack: () -> Unit, connect: () -> Unit) {
                 color = AppColors.dim.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun FuelQualityCard(k: KnockStats) {
+    SectionLabel("Fuel quality (knock)")
+    val (title, color) = when (k.verdict) {
+        KnockStats.Verdict.NotEnoughData -> "Drive under load to judge" to AppColors.dim
+        KnockStats.Verdict.Good -> "Good — no knock detected" to AppColors.green
+        KnockStats.Verdict.Fair -> "Fair — occasional knock" to AppColors.amber
+        KnockStats.Verdict.Poor -> "Poor — frequent knock" to AppColors.red
+    }
+    AppCard(Modifier.fillMaxWidth(), accent = color) {
+        Text(title, color = color, fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column {
+                Text("Knock events", color = AppColors.dim, fontSize = 11.sp)
+                GlowText(k.events.toString(), color, 26.sp)
+            }
+            Column {
+                Text("Per minute", color = AppColors.dim, fontSize = 11.sp)
+                GlowText(String.format(Locale.US, "%.1f", k.eventsPerMinute), color, 26.sp)
+            }
+            Column {
+                Text("Timing under load", color = AppColors.dim, fontSize = 11.sp)
+                GlowText(k.avgTimingUnderLoad?.let { String.format(Locale.US, "%.1f°", it) } ?: "--", AppColors.violet, 26.sp)
+            }
+        }
+        Text(
+            "Estimated: the ECU pulls ignition timing when the knock sensor fires, so sudden timing drops " +
+                "at steady RPM and load are counted. Judged over ${(k.loadedSeconds / 60).toInt()} min under load " +
+                "(needs 1.5 min). Frequent knock usually means low-octane or poor fuel.",
+            color = AppColors.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        AppButton("Reset (new fill-up)", { KnockMonitor.reset() }, Modifier.fillMaxWidth())
     }
 }
 
@@ -366,7 +398,7 @@ fun PerformanceScreen(onBack: () -> Unit, connect: () -> Unit) {
 
     ScreenScaffold("Performance", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
-            NotConnectedHint(connect)
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Run.entries.forEach { r ->
                     AppButton(r.label, { run = r }, Modifier.weight(1f), color = if (r == run) AppColors.magenta else AppColors.dim)
@@ -413,7 +445,7 @@ fun InfoScreen(onBack: () -> Unit, connect: () -> Unit) {
     Subscribe("info", fast = emptyList(), slow = listOf(Virtual.BATTERY, 0xA6, 0x31, 0x21))
     ScreenScaffold("Vehicle info", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
-            NotConnectedHint(connect)
+
             val v = vehicle
             AppCard(Modifier.fillMaxWidth(), accent = AppColors.cyan) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

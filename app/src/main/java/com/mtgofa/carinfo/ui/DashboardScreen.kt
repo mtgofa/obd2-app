@@ -58,7 +58,7 @@ fun Subscribe(owner: String, fast: List<Int>, slow: List<Int> = emptyList()) {
     }
 }
 
-private val extraPids = listOf(Virtual.BATTERY, 0x04, Virtual.BOOST, 0x11, 0x2F, 0x10, 0x0E, 0x42, Virtual.FUEL_RATE)
+private val extraPids = listOf(Virtual.BATTERY, 0x04, Virtual.BOOST, 0x0B, 0x11, 0x2F, 0x10, 0x0E, 0x42, Virtual.FUEL_RATE)
 
 /** Temperature + other tiles that the car actually supports (or a sensible default set while offline). */
 @Composable
@@ -77,7 +77,8 @@ private fun visibleTiles(): List<Int> {
 fun DashboardScreen(onBack: () -> Unit) {
     val values by Obd.values.collectAsState()
     val tiles = visibleTiles()
-    val raw = tiles.filter { it != Virtual.FUEL_RATE } + listOf(0x0B, 0x0F)
+    // 0B + 33 feed the boost calculation; 0F the fuel estimate.
+    val raw = tiles.filter { it < 0x1000 || it == Virtual.BATTERY } + listOf(0x0B, 0x0F, 0x33)
     Subscribe("dash", fast = listOf(0x0D, 0x0C), slow = raw)
 
     ScreenScaffold("Dashboard", onBack) {
