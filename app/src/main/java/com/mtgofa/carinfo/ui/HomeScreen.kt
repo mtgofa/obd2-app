@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.MonitorHeart
@@ -55,7 +56,7 @@ import com.mtgofa.carinfo.obd.Obd
 import com.mtgofa.carinfo.obd.PidUnit
 import com.mtgofa.carinfo.obd.Pids
 
-enum class Route { Home, Connect, Dashboard, Temps, Monitor, Diagnosis, Hud, Fuel, Performance, Info, Terminal, Settings, Trips, TripDetail }
+enum class Route { Home, Connect, Dashboard, Temps, Monitor, Diagnosis, Hud, Fuel, Performance, Info, Terminal, Settings, Trips, TripDetail, AndroidAuto }
 
 private class Feature(val title: String, val icon: ImageVector, val route: Route, val color: (Palette) -> Color)
 
@@ -70,6 +71,7 @@ private val features = listOf(
     Feature("Vehicle info", Icons.Rounded.DirectionsCar, Route.Info, { it.blue }),
     // Terminal hidden from the home grid for now; Route.Terminal still works.
     Feature("Trip record", Icons.Rounded.History, Route.Trips, { it.red }),
+    Feature("Android Auto", Icons.Rounded.DashboardCustomize, Route.AndroidAuto, { it.blue }),
 )
 
 @Composable
@@ -97,7 +99,7 @@ fun HomeScreen(go: (Route) -> Unit) {
                             LinkState.Disconnected -> "Tap to connect your ELM327 adapter"
                             else -> link.message
                         },
-                        color = if (link.state == LinkState.Error) AppColors.red else AppColors.dim, fontSize = 12.sp, maxLines = 2,
+                        color = if (link.state == LinkState.Error) AppColors.red else AppColors.dim, fontSize = 12.sp, maxLines = 1,
                     )
                 }
                 StatusPill(link.state)
@@ -157,6 +159,8 @@ private fun FeatureGrid(go: (Route) -> Unit, aspect: Float, iconSize: Dp) {
     features.chunked(3).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { f -> FeatureTile(f, Modifier.weight(1f), aspect, iconSize) { go(f.route) } }
+            // Keep a short last row at normal tile size instead of stretching it.
+            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
         }
         Spacer(Modifier.height(12.dp))
     }

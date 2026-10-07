@@ -112,7 +112,8 @@ class ClassicBtTransport(
                 delay(300)
             }
         }
-        val s = socket ?: throw IOException("Bluetooth connection failed: ${last?.message ?: "unknown"}")
+        // Keep the message short for the UI; the low-level reason ("read failed, socket might closed…") is noise.
+        val s = socket ?: throw IOException("Bluetooth connection failed", last)
         startReader(s.inputStream, s.outputStream)
     }
 

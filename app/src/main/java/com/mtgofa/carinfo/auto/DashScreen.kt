@@ -13,16 +13,19 @@ import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.mtgofa.carinfo.Settings
 import com.mtgofa.carinfo.obd.LinkState
 import com.mtgofa.carinfo.obd.Obd
 import com.mtgofa.carinfo.obd.Target
-import com.mtgofa.carinfo.Settings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** The dashboard on the car's screen: gauges drawn straight onto the Android Auto surface. */
+/**
+ * The dashboard on the car's screen: gauges drawn straight onto the Android Auto surface.
+ * It's a single screen, laid out by the user on the phone's Android Auto page ([AutoLayout]).
+ */
 class DashScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleObserver {
     private val renderer = DashRenderer(carContext)
     private var drawJob: Job? = null
@@ -43,10 +46,16 @@ class DashScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleO
     }
 
     override fun onStart(owner: LifecycleOwner) {
-        Obd.subscribe(OWNER, fast = listOf(0x0D, 0x0C), slow = DashRenderer.TILE_PIDS)
         var lastState: LinkState? = null
+        var polled: List<Widget>? = null
         drawJob = lifecycleScope.launch {
             while (isActive) {
+                // Ask the car only for what's on screen; follow edits made on the phone live.
+                val wanted = AutoLayout.widgets
+                if (wanted != polled) {
+                    polled = wanted
+                    Obd.subscribe(OWNER, fast = AutoLayout.fastPids(), slow = AutoLayout.slowPids())
+                }
                 renderer.draw()
                 // Rebuild the action strip only when its label would change.
                 val state = Obd.link.value.state

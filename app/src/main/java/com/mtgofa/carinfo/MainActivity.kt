@@ -35,6 +35,7 @@ import com.mtgofa.carinfo.obd.LinkState
 import com.mtgofa.carinfo.obd.Obd
 import com.mtgofa.carinfo.obd.Target
 import com.mtgofa.carinfo.ui.AppTheme
+import com.mtgofa.carinfo.ui.AutoScreen
 import com.mtgofa.carinfo.ui.ConnectScreen
 import com.mtgofa.carinfo.ui.DashboardScreen
 import com.mtgofa.carinfo.ui.DiagnosisScreen
@@ -89,18 +90,24 @@ class MainActivity : ComponentActivity() {
                 UpdatePrompt()
                 AnimatedContent(stack.last(), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "nav") { route ->
                     // Only the dashboard and HUD use the dark palette; the rest of the app is light.
-                    val dark = route == Route.Dashboard || route == Route.Hud
+                    val dark = route == Route.Dashboard || route == Route.Hud || route == Route.AndroidAuto
                     val screen: @Composable () -> Unit = { Screen(route, go, back, connect) }
                     val body: @Composable () -> Unit = {
                         // Painted background so the strip behind the side nav buttons matches the page.
-                        Box(Modifier.fillMaxSize().background(LocalPalette.current.bgBottom)) {
+                        Box(
+                            Modifier.fillMaxSize().background(
+                                LocalPalette.current.let { p ->
+                                    androidx.compose.ui.graphics.Brush.verticalGradient(listOf(p.bgTop, p.bgMid, p.bgBottom))
+                                },
+                            )
+                        ) {
                             Column(
                                 Modifier.fillMaxSize()
                                     .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
                                     .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
                             ) {
                                 Box(Modifier.weight(1f)) { screen() }
-                                if (route != Route.Hud) ConnectionBar { if (route != Route.Connect) go(Route.Connect) }
+                                if (route != Route.Hud && route != Route.AndroidAuto) ConnectionBar { if (route != Route.Connect) go(Route.Connect) }
                             }
                         }
                     }
@@ -132,6 +139,7 @@ class MainActivity : ComponentActivity() {
                         Route.Settings -> SettingsScreen(back)
                         Route.Trips -> TripsScreen(back) { id -> TripNav.selected = id; go(Route.TripDetail) }
                         Route.TripDetail -> TripDetailScreen(back)
+                        Route.AndroidAuto -> AutoScreen(back)
                     }
     }
 }
